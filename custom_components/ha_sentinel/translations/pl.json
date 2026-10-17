@@ -20,9 +20,15 @@
           "storage_max_total_mib": "Budżet magazynu (MiB)",
           "managed_write_enabled": "Pozwól Sentinel zapisywać pliki zarządzane (przywracanie)",
           "managed_dir": "Katalog plików zarządzanych (w katalogu konfiguracji)",
-          "managed_reload_after_apply": "Przeładuj automatyzacje po przywróceniu"
+          "managed_reload_after_apply": "Przeładuj automatyzacje po przywróceniu",
+          "network_active_probes": "Aktywne sondy sieciowe (poziom N1, tylko zatwierdzone cele)",
+          "network_interval_s": "Interwał sond (s)",
+          "network_allowlist": "Dozwolone zakresy adresów (CIDR, po przecinku)"
         }
       }
+    },
+    "error": {
+      "invalid_cidr": "Podaj jeden lub więcej zakresów CIDR oddzielonych przecinkami, np. 192.168.1.0/24."
     }
   },
   "entity": {

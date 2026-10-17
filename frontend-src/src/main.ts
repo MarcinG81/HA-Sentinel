@@ -21,6 +21,7 @@ import type {
 } from "./types.ts";
 import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
 import { renderDataCard, renderExportCard } from "./views_data.ts";
+import { renderNetwork } from "./views_network.ts";
 import { renderAutopilot, renderHistory, renderMap } from "./views_e3.ts";
 
 type View = "overview" | "doctor" | "history" | "autopilot" | "map" | "network" | "diagnostics" | "settings";
@@ -267,6 +268,8 @@ class SentinelPanel extends HTMLElement {
         return renderAutopilot(this.ctx);
       case "map":
         return renderMap(this.ctx);
+      case "network":
+        return renderNetwork(this.ctx);
       default:
         return this.renderModulePlaceholder(this.view);
     }

@@ -224,6 +224,8 @@ def build_graph(
     areas: dict[str, str],
     imports: list[ImportedResource],
     revision: int,
+    extra_nodes: list[Node] | None = None,
+    extra_edges: list[Edge] | None = None,
 ) -> DependencyGraph:
     g = DependencyGraph(revision)
     entry_by_id = {e.entry_id: e for e in entries}
@@ -254,6 +256,12 @@ def build_graph(
                             "registry", CONF_EXPLICIT))
         if e.area_id and f"area:{e.area_id}" in g.nodes:
             g.add_edge(Edge(e.uid, f"area:{e.area_id}", "member_of", "registry", CONF_EXPLICIT))
+
+    for node in extra_nodes or []:
+        g.add_node(node)
+    for edge in extra_edges or []:
+        if edge.from_uid in g.nodes and edge.to_uid in g.nodes:
+            g.add_edge(edge)
 
     for imp in imports:
         for r in imp.model.runnables:

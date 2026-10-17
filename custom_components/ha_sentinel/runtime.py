@@ -60,6 +60,7 @@ from .modules.correlation.correlator import ActiveFinding, ExistingIncident, cor
 from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
 from .modules.doctor.health import HealthResult, HealthUnit, compute_health
+from .network_services import NetworkService
 from .repositories import repository as repo
 from .repositories.db import DatabaseWorker, DbMode, UnsupportedSchemaError
 
@@ -111,6 +112,7 @@ class SentinelRuntime:
         self.config: ConfigServices | None = None
         self.data: DataServices | None = None
         self.changes: ChangeService | None = None
+        self.network: NetworkService | None = None
         self.version = "unknown"
         self.module_states: dict[str, ModuleState] = {}
         self._correlate_lock = asyncio.Lock()
@@ -172,6 +174,17 @@ class SentinelRuntime:
         await self._start_config_services()
         self.data = DataServices(self)
         await self.data.async_start()
+        self.network = NetworkService(self)
+        try:
+            await self.network.async_start()
+            status, reason = self.network.capability
+        except Exception:
+            # Network discovery must never take down Core or Doctor (AC NET 02).
+            _LOGGER.exception("Sentinel network module failed to start")
+            status, reason = CapabilityStatus.UNAVAILABLE, "network_failed"
+        self.capabilities["network.probe"] = Capability("network.probe", status, reason)
+        if self.config is not None:
+            self.config.schedule_graph_rebuild()
         config_ready = self.module_states.get("config_history") is ModuleState.READY
         if self.config is not None and config_ready:
             self.changes = ChangeService(self)
@@ -203,6 +216,8 @@ class SentinelRuntime:
             except TimeoutError:
                 _LOGGER.warning("Writer did not flush within %ss", UNLOAD_FLUSH_TIMEOUT_S)
                 self._writer_task.cancel()
+        if self.network is not None:
+            await self.network.async_stop()
         if self.data is not None:
             await self.data.async_stop()
         if self.config is not None:
@@ -383,9 +398,10 @@ class SentinelRuntime:
             return
         async with self._correlate_lock:
             now = self.clock.now_us()
+            network_findings = self.network.active_findings() if self.network else []
             findings = [
                 ActiveFinding(f.id, f.rule_id, f.subject_uid, f.severity, f.first_seen_us)
-                for f in self.doctor.active_findings()
+                for f in [*self.doctor.active_findings(), *network_findings]
             ]
             existing = [
                 ExistingIncident(r["id"], r["fingerprint"], frozenset(r["finding_ids"]),
@@ -394,6 +410,8 @@ class SentinelRuntime:
             ]
             graph = self.config.graph if self.config is not None else DependencyGraph()
             evidence = self._evidence.collect(self.hass, now)
+            if self.network is not None:
+                evidence.update(self.network.evidence())
             availability = {
                 uid: (a is Availability.AVAILABLE)
                 for uid, a in self.doctor.availability_snapshot().items()

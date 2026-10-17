@@ -23,6 +23,7 @@ export interface E3State {
   deleteScope: string;
   restore: import("./types.ts").RestorePreview | null;
   managedDraft: { path: string; label: string; exclusive: boolean };
+  targetDraft: { label: string; host: string; port: string; kind: string; path: string; loopback: boolean; device: string };
 }
 
 export function initialE3State(): E3State {
@@ -46,6 +47,7 @@ export function initialE3State(): E3State {
     deleteScope: "observations",
     restore: null,
     managedDraft: { path: "ha_sentinel_managed/automations.yaml", label: "Managed automations", exclusive: false },
+    targetDraft: { label: "", host: "", port: "80", kind: "tcp", path: "/", loopback: false, device: "" },
   };
 }
 

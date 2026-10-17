@@ -21,10 +21,22 @@ from .const import (
     OPT_MANAGED_DIR,
     OPT_MANAGED_RELOAD,
     OPT_MANAGED_WRITE_ENABLED,
+    OPT_NETWORK_ACTIVE_PROBES,
+    OPT_NETWORK_ALLOWLIST,
+    OPT_NETWORK_INTERVAL_S,
     OPT_RETENTION_OBSERVATIONS_DAYS,
     OPT_STORAGE_MAX_TOTAL_MIB,
 )
 from .core.models import new_uuid
+
+
+def _allowlist_ok(value: str) -> bool:
+    from .modules.network.targets import TargetRejected, parse_allowlist
+
+    try:
+        return bool(parse_allowlist(value))
+    except TargetRejected:
+        return False
 
 
 class SentinelConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -48,9 +60,12 @@ class SentinelConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class SentinelOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data={**self.config_entry.options, **user_input})
-        opts = {**DEFAULT_OPTIONS, **self.config_entry.options}
+            if _allowlist_ok(user_input.get(OPT_NETWORK_ALLOWLIST, "")):
+                return self.async_create_entry(data={**self.config_entry.options, **user_input})
+            errors[OPT_NETWORK_ALLOWLIST] = "invalid_cidr"
+        opts = {**DEFAULT_OPTIONS, **self.config_entry.options, **(user_input or {})}
         schema = vol.Schema(
             {
                 vol.Required(OPT_DOCTOR_UNAVAILABLE_S, default=opts[OPT_DOCTOR_UNAVAILABLE_S]):
@@ -68,6 +83,13 @@ class SentinelOptionsFlow(OptionsFlow):
                 vol.Required(OPT_MANAGED_DIR, default=opts[OPT_MANAGED_DIR]):
                     vol.All(str, vol.Match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")),
                 vol.Required(OPT_MANAGED_RELOAD, default=opts[OPT_MANAGED_RELOAD]): bool,
+                vol.Required(OPT_NETWORK_ACTIVE_PROBES,
+                             default=opts[OPT_NETWORK_ACTIVE_PROBES]): bool,
+                vol.Required(OPT_NETWORK_INTERVAL_S, default=opts[OPT_NETWORK_INTERVAL_S]):
+                    vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
+                # Plain str: the schema must stay serialisable for the frontend form;
+                # CIDR validation happens in the step and is reported as a form error.
+                vol.Required(OPT_NETWORK_ALLOWLIST, default=opts[OPT_NETWORK_ALLOWLIST]): str,
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

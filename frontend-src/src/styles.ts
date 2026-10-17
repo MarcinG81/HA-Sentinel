@@ -118,7 +118,7 @@ select, input[type=text] {
 .grow { flex: 1; min-width: 0; }
 .check { display: flex; align-items: center; gap: 8px; color: var(--primary-text-color); margin: 12px 0 0; }
 .check select { width: auto; }
-textarea, input[type=search] {
+textarea, input[type=search], input[type=number] {
   width: 100%; font: inherit; padding: 8px 10px; border-radius: 8px;
   border: 1px solid var(--divider-color); background: var(--primary-background-color); color: inherit;
 }

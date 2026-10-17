@@ -17,7 +17,7 @@
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
-| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19, B20, B23 zrobione; retencja/purge (REQ10) zrobione |
+| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19, B20, B21, B23 zrobione; retencja/purge (REQ10) zrobione |
 | E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
 
 ## Krytyczna ścieżka MVP
@@ -99,3 +99,15 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Fault injection (T14) w 9 punktach: plik zawsze w całości stary albo nowy.
 - Znalezione testami: (1) wyjątek dziennika po udanym reloadzie wywołałby rollback — `try` zawężony do samego reloadu; (2) lambda zwracająca kursor `PRAGMA wal_checkpoint` zostawiała aktywną instrukcję i psuła każdy kolejny COMMIT — naprawione, a `DatabaseWorker.run` odrzuca zwracanie kursorów.
 - Weryfikacja na żywym HA 2026.10.2: rejestracja, edycja z zewnątrz, sync, podgląd, przywrócenie z prawdziwym `automation.reload`.
+
+## E4 / B21 — Network Discovery N0/N1
+
+- N0 domyślnie: inwentarz urządzeń HA z tożsamością sieciową (MAC skrócony, IP nigdy jako tożsamość), zero sond (AC NET 04 — test sprawdza licznik sond po 10 min).
+- N1 opt-in (`network_active_probes`): wyłącznie cele zatwierdzone przez admina (tabela `network_targets`, migracja v4, audyt). TCP, HTTP, HTTPS (TLS weryfikowany, brak opcji pominięcia).
+- Walidacja: składnia celu (bez schematów, użytkownika, ścieżki w hoście; ścieżka HTTP bez CR/LF), adresy po DNS: blokada metadanych chmury, link-local, multicast, unspecified, broadcast, reserved, loopback bez zgody, spoza allowlisty (domyślnie RFC1918 + ULA). Literały IP sprawdzane już przy zatwierdzaniu.
+- Anti-rebinding: każdy adres z odpowiedzi DNS musi przejść, połączenie idzie na zwalidowany IP. HTTP: bez przekierowań, ≤ 64 KiB, 3 s.
+- Limity wspólne dla skanu cyklicznego i ręcznego: 30 połączeń/min, 4 równolegle, 1 próba/cel/min; jitter ±10%.
+- Stany: odmowa TCP = host osiągalny, usługa zamknięta (nie awaria sieci); 3 timeouty → `unreachable` + finding NET001; 2 sukcesy zamykają.
+- RCA: endpoint może być ręcznie powiązany z urządzeniem (`device → endpoint`, `depends_on`, provenance manual); nieosiągalny endpoint = dowód bezpośredni E=1.
+- Collector N2, skan CIDR i adaptery routerów — R2 (osobny pakiet).
+- Znalezione na żywym HA: własny walidator w schemacie formularza opcji psuł serializację (HTTP 500) — walidacja CIDR przeniesiona do kroku flow; dodany test flow opcji przez HTTP API.

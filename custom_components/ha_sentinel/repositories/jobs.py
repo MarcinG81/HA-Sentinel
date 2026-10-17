@@ -148,6 +148,11 @@ def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int
             "WHERE received_at_us < ? LIMIT ?)",
             (now_us - observations_days * DAY_US, PURGE_BATCH),
         ).rowcount
+        counts["probe_results"] = conn.execute(
+            "DELETE FROM probe_results WHERE rowid IN (SELECT rowid FROM probe_results "
+            "WHERE at_us < ? LIMIT ?)",
+            (now_us - observations_days * DAY_US, PURGE_BATCH),
+        ).rowcount
         counts["coverage"] = conn.execute(
             "DELETE FROM coverage WHERE rowid IN (SELECT rowid FROM coverage "
             "WHERE to_us IS NOT NULL AND to_us < ? LIMIT ?)",

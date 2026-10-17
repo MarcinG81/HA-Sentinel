@@ -92,6 +92,8 @@ class ConfigServices:
             snap = async_snapshot(self.hass, self.rt.inventory)
             rows = await self.rt.db.run(lambda c: history.latest_imports(c, self.blobs))
             revision = self.graph.revision + 1
+            net_nodes, net_edges = (self.rt.network.graph_elements()
+                                    if self.rt.network is not None else ([], []))
 
             def build() -> DependencyGraph:
                 imports = [
@@ -101,7 +103,8 @@ class ConfigServices:
                 ]
                 return build_graph(entities=snap.entities, devices=snap.devices,
                                    entries=snap.entries, areas=snap.areas, imports=imports,
-                                   revision=revision)
+                                   revision=revision, extra_nodes=net_nodes,
+                                   extra_edges=net_edges)
 
             self.graph = await self.hass.async_add_executor_job(build)
             self.graph_built_us = self.rt.clock.now_us()

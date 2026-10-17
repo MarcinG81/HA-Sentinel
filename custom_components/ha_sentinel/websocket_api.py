@@ -82,6 +82,12 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_changes_preview,
         ws_changes_apply,
         ws_changes_get,
+        ws_network_inventory,
+        ws_network_targets_list,
+        ws_network_targets_add,
+        ws_network_targets_update,
+        ws_network_targets_delete,
+        ws_network_scan,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -802,3 +808,113 @@ async def ws_changes_get(hass, connection, msg, runtime) -> None:
         "detail": report.get("result_detail"), "validation": report.get("validation"),
         "impact": report.get("impact"),
     })
+
+
+# --- Network discovery (B21) --------------------------------------------------------------
+
+
+def _network(runtime):
+    if runtime.network is None:
+        raise SentinelError(ErrorCode.NOT_READY, "network module is not ready")
+    return runtime.network
+
+
+@websocket_api.websocket_command(_schema("network/inventory"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_network_inventory(hass, connection, msg, runtime) -> None:
+    """Level N0: devices HA already knows. Never probes anything."""
+    net = _network(runtime)
+    status, reason = net.capability
+    connection.send_result(msg["id"], {
+        "level": "N1" if status is CapabilityStatus.SUPPORTED else "N0",
+        "probe_capability": {"status": str(status), "reason_code": reason},
+        "devices": net.inventory(),
+    })
+
+
+@websocket_api.websocket_command(_schema("network/targets/list"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_network_targets_list(hass, connection, msg, runtime) -> None:
+    net = _network(runtime)
+    connection.send_result(msg["id"], {
+        "items": [net.target_api(t) for t in net.targets.values()],
+        "allowlist": [str(n) for n in net.allowlist],
+        "interval_s": net.interval_s,
+        "active": net.active,
+    })
+
+
+@websocket_api.websocket_command(
+    _schema("network/targets/add")
+    | {
+        vol.Required("label"): vol.All(str, vol.Length(min=1, max=80)),
+        vol.Required("host"): vol.All(str, vol.Length(min=1, max=253)),
+        vol.Required("port"): vol.All(int, vol.Range(min=1, max=65535)),
+        vol.Required("kind"): vol.In(["tcp", "http", "https"]),
+        vol.Optional("path", default="/"): vol.All(str, vol.Length(max=200)),
+        vol.Optional("allow_loopback", default=False): bool,
+        vol.Optional("linked_device_id"): vol.Any(None, vol.All(str, vol.Length(max=64))),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_targets_add(hass, connection, msg, runtime) -> None:
+    """Adding a target is the admin's explicit approval to probe it (spec 13.1)."""
+    result = await _network(runtime).add_target(
+        label=msg["label"], host=msg["host"], port=msg["port"], kind=msg["kind"],
+        path=msg["path"], allow_loopback=msg["allow_loopback"],
+        linked_device_id=msg.get("linked_device_id"), actor=connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("network/targets/update")
+    | {
+        vol.Required("target_id"): _uuid,
+        vol.Optional("enabled"): bool,
+        vol.Optional("linked_device_id"): vol.Any(None, vol.All(str, vol.Length(max=64))),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_targets_update(hass, connection, msg, runtime) -> None:
+    clear = "linked_device_id" in msg and msg["linked_device_id"] is None
+    result = await _network(runtime).update_target(
+        msg["target_id"], enabled=msg.get("enabled"),
+        linked_device_id=msg.get("linked_device_id"), clear_link=clear,
+        actor=connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("network/targets/delete")
+    | {vol.Required("target_id"): _uuid, vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_targets_delete(hass, connection, msg, runtime) -> None:
+    await _network(runtime).delete_target(msg["target_id"], connection.user.id)
+    connection.send_result(msg["id"], {"deleted": True})
+
+
+@websocket_api.websocket_command(
+    _schema("network/scan")
+    | {vol.Optional("target_ids"): [_uuid], vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_scan(hass, connection, msg, runtime) -> None:
+    """Manual scan of approved targets only; shares limits with periodic probes."""
+    result = await _network(runtime).start_scan(
+        msg["request_key"], _request_hash(msg), connection.user.id, msg.get("target_ids"))
+    connection.send_result(msg["id"], result)

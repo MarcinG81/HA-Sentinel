@@ -20,9 +20,15 @@
           "storage_max_total_mib": "Storage budget (MiB)",
           "managed_write_enabled": "Allow Sentinel to write managed files (restore)",
           "managed_dir": "Managed files directory (inside the config directory)",
-          "managed_reload_after_apply": "Reload automations after restore"
+          "managed_reload_after_apply": "Reload automations after restore",
+          "network_active_probes": "Active network probes (level N1, approved targets only)",
+          "network_interval_s": "Probe interval (s)",
+          "network_allowlist": "Allowed address ranges (CIDR, comma separated)"
         }
       }
+    },
+    "error": {
+      "invalid_cidr": "Enter one or more CIDR ranges separated by commas, e.g. 192.168.1.0/24."
     }
   },
   "entity": {

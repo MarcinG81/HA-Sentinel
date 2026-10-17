@@ -299,3 +299,29 @@ export interface RestorePreview {
   impact: { automations: string[]; entities: string[] };
   expected_ids: string[];
 }
+
+// --- B21: network --------------------------------------------------------------------------
+
+export interface NetworkDevice {
+  device_id: string;
+  name: string | null;
+  manufacturer: string | null;
+  mac_hint: string[];
+  has_configuration_url: boolean;
+  linked_targets: string[];
+}
+
+export interface NetworkTarget {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  kind: "tcp" | "http" | "https";
+  path: string;
+  allow_loopback: boolean;
+  linked_device_id: string | null;
+  enabled: boolean;
+  status: "unknown" | "reachable" | "service_closed" | "unreachable";
+  last_outcome: string | null;
+  failures: number;
+}
