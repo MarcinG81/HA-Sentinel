@@ -1,7 +1,9 @@
 {
   "domain": "ha_sentinel",
   "name": "HA Sentinel",
-  "codeowners": [],
+  "codeowners": [
+    "@MarcinG81"
+  ],
   "config_flow": true,
   "dependencies": [
     "frontend",
@@ -10,10 +12,10 @@
     "persistent_notification",
     "websocket_api"
   ],
-  "documentation": "https://github.com/OWNER/ha-sentinel",
+  "documentation": "https://github.com/MarcinG81/HA-Sentinel",
   "integration_type": "service",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/OWNER/ha-sentinel/issues",
+  "issue_tracker": "https://github.com/MarcinG81/HA-Sentinel/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.1.0"

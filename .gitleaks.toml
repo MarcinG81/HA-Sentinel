@@ -1,0 +1,13 @@
+# Gitleaks configuration: default rules plus an allowlist for known test fixtures.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures, not credentials"
+regexes = [
+  # T19 canary: a fake secret that must never appear in exports, logs or the UI.
+  '''CanarySecret-[0-9a-f]{4}''',
+  # Fixed UUIDs used as request keys / instance ids in older test revisions.
+  '''7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f''',
+  '''8d2f3e4a-5b6c-4d7e-9f8a-0b1c2d3e4f5a''',
+]

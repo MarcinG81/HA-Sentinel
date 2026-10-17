@@ -51,7 +51,8 @@ for damaged or newer databases, diagnostics download, metrics.
 
 ## Install
 
-HACS → Integrations → ⋮ → Custom repositories → add this repository as *Integration*,
+HACS → Integrations → ⋮ → Custom repositories → add
+`https://github.com/MarcinG81/HA-Sentinel` as *Integration*,
 install, restart Home Assistant, then add **HA Sentinel** in Settings → Devices & services.
 Details, upgrade and downgrade: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
