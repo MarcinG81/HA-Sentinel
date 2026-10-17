@@ -607,7 +607,19 @@ class SentinelPanel extends HTMLElement {
       h("h2", { id: "h-rec" }, t("detail.recommendation")),
       h("p", {}, t(inc.kind === "infrastructure" ? "rec.infrastructure" : `rec.${inc.rule_id}`)),
     );
-    return h("div", { class: "stack" }, back, coverageBanner, head, hypothesis, counter, observation, rec);
+    const recurrence = inc.recurrence_of
+      ? h("div", { class: "banner", role: "note" }, t("detail.recurrence"), " ",
+          h("button", { class: "link", type: "button", onclick: () => this.select("doctor", inc.recurrence_of as string) }, t("detail.recurrence_open")))
+      : null;
+    const changes = inc.change_hypotheses?.length
+      ? h("section", { class: "card", "aria-labelledby": "h-chg" },
+          h("h2", { id: "h-chg" }, t("detail.changes")),
+          h("p", { class: "muted" }, t("detail.changes_hint")),
+          h("ul", { class: "list" }, inc.change_hypotheses.map((c) => h("li", {}, h("div", { class: "item" },
+            h("div", { class: "title" }, c.label),
+            h("div", { class: "sub" }, t("detail.change_line").replace("{m}", String(c.minutes_before)).replace("{runnable}", c.runnable).replace("{rel}", t(`rel.${c.relation}`)).replace("{subject}", this.subjectText(c.subject))))))))
+      : null;
+    return h("div", { class: "stack" }, back, coverageBanner, recurrence, head, hypothesis, changes, counter, observation, rec);
   }
 
   private evidenceRow(e: Evidence): HTMLElement {

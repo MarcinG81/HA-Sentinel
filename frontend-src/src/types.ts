@@ -149,6 +149,8 @@ export interface IncidentDetail extends Incident {
   hypotheses: Hypothesis[];
   counter_evidence: { kind: string; count?: number; sample?: string[]; candidate_uid: string }[];
   confirmed_cause: { candidate_uid: string; verdict: "confirmed" | "rejected"; by: string; at: string } | null;
+  change_hypotheses?: { candidate_uid: string; label: string; minutes_before: number; runnable: string; relation: string; subject: Subject }[];
+  recurrence_of?: string | null;
 }
 
 export interface IncidentPage {

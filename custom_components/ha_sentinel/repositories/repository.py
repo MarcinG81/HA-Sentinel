@@ -206,7 +206,21 @@ def load_active_incidents(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
-_KEEP_ON_UPDATE = ("confirmed_cause",)
+_KEEP_ON_UPDATE = ("confirmed_cause", "recurrence_of")
+
+
+def recent_config_changes(conn: sqlite3.Connection, since_us: int) -> list[dict]:
+    """Snapshots newer than `since_us` that changed an existing automation resource.
+
+    A first import is Sentinel learning about a file, not a change in HA, so only
+    snapshots with a predecessor count.
+    """
+    return [dict(r) for r in conn.execute(
+        "SELECT s.resource_id, r.label, MAX(s.created_us) AS changed_at_us FROM snapshots s "
+        "JOIN resources r ON r.id = s.resource_id WHERE s.created_us >= ? "
+        "AND r.kind IN ('automation','script','blueprint') AND EXISTS (SELECT 1 FROM "
+        "snapshots p WHERE p.resource_id = s.resource_id AND p.rowid < s.rowid) "
+        "GROUP BY s.resource_id, r.label", (since_us,))]
 
 
 def sync_incidents(conn: sqlite3.Connection, plans: list, now_us: int) -> bool:
@@ -236,10 +250,19 @@ def sync_incidents(conn: sqlite3.Connection, plans: list, now_us: int) -> bool:
                 "root_uid": plan.root_uid,
                 "member_count": len(plan.finding_ids),
                 "hypotheses": plan.hypotheses,
+                "change_hypotheses": getattr(plan, "changes", []),
             }
             row = active.get(plan.fingerprint)
             if row is None:
                 incident_id = new_uuid()
+                # A failure after a resolved one is a new incident that remembers it (9.1).
+                prev = conn.execute(
+                    "SELECT id FROM incidents WHERE fingerprint=? AND status='resolved' AND "
+                    "json_extract(summary_json, '$.merged_into') IS NULL "
+                    "ORDER BY resolved_at_us DESC, rowid DESC LIMIT 1",
+                    (plan.fingerprint,)).fetchone()
+                if prev is not None:
+                    summary["recurrence_of"] = prev["id"]
                 conn.execute(
                     "INSERT INTO incidents(id, fingerprint, status, severity, opened_at_us, "
                     "updated_at_us, revision, summary_json) VALUES (?,?,?,?,?,?,?,?)",

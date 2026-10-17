@@ -178,7 +178,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | **zrobione** |
 | G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | **zrobione** (z G2b) |
 | G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | **zrobione** |
-| G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | do zrobienia |
+| G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | **zrobione** |
 | G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | do zrobienia |
 | G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | do zrobienia |
 | G14 | Budżety klas danych: audyt (limit blokuje mutacje), 50 snapshotów na zasób, agregaty minutowe/godzinowe telemetrii | 7.3 | do zrobienia |
@@ -265,3 +265,8 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Błąd: urządzenie samego Sentinela trafiało do grafu domu; wykluczone.
 - Pierwsza budowa grafu po starcie wszystkich modułów (wcześniej powstawała rewizja bez węzłów sieciowych i druga zaraz po niej).
 - `device_registry.devices` iterowane zgodnie z HA 2026.10 (stary dostęp jak do mapy przestanie działać w 2027.9).
+
+### G11 — decyzje
+
+- `recurrence_of`: nowy incydent o tym samym fingerprincie po rozwiązanym (pomijając zamknięte przez scalenie) pamięta poprzedni; panel pokazuje baner z linkiem.
+- `change_related`: snapshot zmieniający istniejący zasób automatyzacji (pierwszy import się nie liczy) w ciągu 30 min przed początkiem incydentu (+5 s tolerancji zegara), tylko gdy jego automatyzacja `reads` / `controls` / `calls` dotknięty obiekt albo jego przodka. Lista osobno od rankingu, bez wpływu na score (9.2), maks. 3, z opisem powiązania.

@@ -345,6 +345,10 @@ async def ws_incidents_get(hass, connection, msg, runtime) -> None:
     summary = row["summary"]
     # Ranking is a heuristic, not a probability; confirmation is a separate admin field.
     out["hypotheses"] = summary.get("hypotheses", [])
+    out["change_hypotheses"] = [
+        {**c, "subject": runtime.subject_label(c.get("subject_uid"))}
+        for c in summary.get("change_hypotheses", [])]
+    out["recurrence_of"] = summary.get("recurrence_of")
     out["counter_evidence"] = [
         {**c, "candidate_uid": h["candidate_uid"]}
         for h in out["hypotheses"] for c in h.get("counter_evidence", [])

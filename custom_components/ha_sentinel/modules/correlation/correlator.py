@@ -68,6 +68,8 @@ class IncidentPlan:
     title_key: str
     hypotheses: list[dict[str, Any]] = field(default_factory=list)
     merge_incident_ids: list[str] = field(default_factory=list)
+    # change_related hypotheses: listed apart, never part of the score (spec 9.2).
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
 
 EntityAvailable = Callable[[str], bool | None]

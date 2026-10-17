@@ -89,6 +89,8 @@ from .core.ratelimit import RateLimiter
 from .core.supervisor import Supervisor
 from .data_services import DataServices
 from .maintenance_services import MaintenanceService
+from .modules.correlation.changes import WINDOW_S as CHANGE_WINDOW_S
+from .modules.correlation.changes import ConfigChange, change_hypotheses
 from .modules.correlation.correlator import ActiveFinding, ExistingIncident, correlate
 from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DOCTOR_RULES, DoctorEngine, DoctorParams
@@ -738,14 +740,26 @@ class SentinelRuntime:
                 uid: (a is Availability.AVAILABLE)
                 for uid, a in self.doctor.availability_snapshot().items()
             }
-            plans = await self.hass.async_add_executor_job(
-                lambda: correlate(
+            since = now - (CHANGE_WINDOW_S + 60) * S
+            changes = [ConfigChange(r["resource_id"], r["label"], r["changed_at_us"])
+                       for r in await self.db.run(
+                           lambda c: repo.recent_config_changes(c, since))]
+            subject_of = {f.id: f.subject_uid for f in findings}
+
+            def run():
+                plans = correlate(
                     instance_id=self.entry.data.get("instance_id", self.entry.entry_id),
                     findings=findings, existing=existing, graph=graph, evidence=evidence,
                     entity_available=availability.get,
                     coverage_complete=self.coverage.is_complete, now_us=now,
                 )
-            )
+                for plan in plans:
+                    plan.changes = change_hypotheses(
+                        graph, sorted({subject_of[i] for i in plan.finding_ids
+                                       if i in subject_of}), plan.opened_at_us, changes)
+                return plans
+
+            plans = await self.hass.async_add_executor_job(run)
 
             def apply(conn):
                 changed = repo.sync_incidents(conn, plans, now)
