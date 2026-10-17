@@ -46,6 +46,8 @@ class NumericSourceService:
             "id": s.id, "subject_uid": s.subject_uid,
             "subject_label": ent.current_alias if ent else None,
             "subject_deleted": ent is None or ent.deleted_at_us is not None,
+            # Without a registry entry the identity lasts one boot (spec 6.1).
+            "subject_persistent": ent is not None and ent.registry_id is not None,
             "purpose": s.purpose, "scale_min": s.scale_min, "scale_max": s.scale_max,
             "threshold": s.threshold,
             "sampling": s.purpose == "battery" or sampling_enabled,

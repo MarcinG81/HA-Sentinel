@@ -49,6 +49,8 @@ class RuleService:
             "id": o.id, "rule_id": o.rule_id, "subject_uid": o.subject_uid,
             "subject_label": ent.current_alias if ent else None,
             "subject_deleted": ent is None or ent.deleted_at_us is not None,
+            # Without a registry entry the identity lasts one boot (spec 6.1).
+            "subject_persistent": ent is not None and ent.registry_id is not None,
             "enabled": o.enabled, "params": o.params, "policy_revision": o.policy_revision,
         }
 

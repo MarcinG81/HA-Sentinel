@@ -106,6 +106,8 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_network_hosts_save,
         ws_network_hosts_delete,
         ws_network_hosts_link,
+        ws_health_components,
+        ws_health_weight,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -1249,6 +1251,31 @@ async def ws_numeric_delete(hass, connection, msg, runtime) -> None:
         raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
     await runtime.numeric.delete(msg["source_id"], connection.user.id)
     connection.send_result(msg["id"], {"deleted": True})
+
+
+@websocket_api.websocket_command(_schema("health/components"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_health_components(hass, connection, msg, runtime) -> None:
+    """All score components and exclusions (spec 8.3)."""
+    connection.send_result(msg["id"], runtime.health_components())
+
+
+@websocket_api.websocket_command(
+    _schema("health/weight")
+    | {vol.Required("unit_uid"): vol.All(str, vol.Length(min=1, max=300)),
+       vol.Required("weight"): vol.All(int, vol.Range(min=1, max=5)),
+       vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_health_weight(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    await runtime.set_unit_weight(msg["unit_uid"], msg["weight"], connection.user.id)
+    connection.send_result(msg["id"], runtime.health_components())
 
 
 @websocket_api.websocket_command(

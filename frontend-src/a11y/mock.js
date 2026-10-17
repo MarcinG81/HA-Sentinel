@@ -34,8 +34,12 @@ export const DATA = {
       links: [{ device_id: "d1", name: "Synology", missing: false }],
       suggestions: [{ device_id: "d2", name: "Drukarka", reasons: ["ip_match"], confidence: 0.3 }],
       reachability: "not_probed", ha_entities: { available: 3, unavailable: 1, unknown: 0 }, endpoints: [] }] },
+  "ha_sentinel/health/components": { score: 85, score_partial: 85, units: [
+    { unit: "u1", kind: "device", label: "Pompa", entities: 3, rules: ["DOC001"], weight: 3, penalty: "0.6", covered: true },
+    { unit: "u2", kind: "entity", label: "sensor.temp", entities: 1, rules: [], weight: 1, penalty: "0", covered: false },
+    { unit: "u3", kind: "device", label: "Gniazdko", entities: 2, rules: [], excluded: "maintenance" }] },
   "ha_sentinel/rules/list": { items: [
-    { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, enabled: true, params: { period_s: 300 } },
+    { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, subject_persistent: true, enabled: true, params: { period_s: 300 } },
     { id: "r2", rule_id: "DOC001", subject_uid: "u2", subject_label: null, subject_deleted: true, enabled: false, params: {} }],
     ranges: { DOC001: { unavailable_s: [30, 3600] }, DOC002: { unknown_s: [60, 86400] }, DOC003: { flap_threshold: [2, 100] }, DOC004: { low_pct: [1, 99], clear_pct: [2, 100] }, DOC005: { period_s: [10, 86400], threshold_s: [0, 604800] }, DOC009: {} } },
   "ha_sentinel/maintenance/list": { items: [{ id: "w1", scope_kind: "device", scope_id: "device:x", label: "Gniazdko", reason: "wymiana", start: "2026-10-17T09:00:00Z", end: "2026-10-17T11:00:00Z", active: true }] },

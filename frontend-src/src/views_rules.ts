@@ -10,6 +10,7 @@ interface Override {
   subject_uid: string;
   subject_label: string | null;
   subject_deleted: boolean;
+  subject_persistent: boolean;
   enabled: boolean;
   params: Record<string, number>;
 }
@@ -105,7 +106,7 @@ export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
           h("div", { class: "row spread" },
             h("span", { class: "title" }, o.subject_label ?? t("rules.subject_gone")),
             h("span", { class: `badge ${o.enabled ? "ok" : "status"}` }, `${o.rule_id} · ${t(`rule.${o.rule_id}`)}`)),
-          h("div", { class: "sub" }, describe(o) + (o.subject_deleted ? ` · ${t("rules.subject_gone")}` : "")),
+          h("div", { class: "sub" }, describe(o) + (o.subject_deleted ? ` · ${t("rules.subject_gone")}` : !o.subject_persistent ? ` · ${t("rules.not_persistent")}` : "")),
           h("button", { class: "secondary small", onclick: async () => { await ctx.ws({ type: "ha_sentinel/rules/delete", override_id: o.id, request_key: uuid4() }); ctx.rerender(); } }, t("rules.remove")))))),
     form,
   );

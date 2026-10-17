@@ -6,6 +6,7 @@ import uuid
 from datetime import timedelta
 
 from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.ha_sentinel.const import (
@@ -48,6 +49,9 @@ def _active(runtime, rule):
 
 
 async def test_heartbeat_contract_end_to_end(hass, freezer):
+    # A registry entry gives a stable identity, so the contract survives a reload.
+    er.async_get(hass).async_get_or_create("sensor", "demo", "temp",
+                                           suggested_object_id="temp")
     hass.states.async_set("sensor.temp", "21.0")
     entry, runtime = await _setup(hass)
     await _tick(hass, freezer, 40)
@@ -116,3 +120,19 @@ async def test_rules_api_disable_and_validation(hass, hass_ws_client, freezer):
     audit = await runtime.db.run(lambda c: [r[0] for r in c.execute(
         "SELECT operation FROM audit WHERE operation LIKE 'rules.%' ORDER BY created_us")])
     assert audit == ["rules.set", "rules.delete"]
+
+
+async def test_override_of_registry_less_entity_stays_with_its_tombstone(hass, freezer):
+    hass.states.async_set("sensor.legacy", "1")  # no unique_id: identity is per boot
+    entry, runtime = await _setup(hass)
+    await _tick(hass, freezer, 40)
+    old_uid = runtime.inventory.uid_for_alias("sensor.legacy")
+    await runtime.rules.set(rule_id="DOC001", subject_uid=old_uid, enabled=False, params={},
+                            actor="admin")
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    runtime = hass.data[DOMAIN]["runtime"]
+    assert runtime.inventory.uid_for_alias("sensor.legacy") != old_uid  # new identity
+    assert runtime.inventory.get(old_uid).deleted_at_us is not None  # tombstone
+    item = runtime.rules.override_api(runtime.rules.overrides[0])
+    assert item["subject_uid"] == old_uid and item["subject_deleted"] is True

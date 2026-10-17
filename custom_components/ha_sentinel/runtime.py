@@ -27,6 +27,7 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
@@ -154,6 +155,7 @@ class SentinelRuntime:
         self.maintenance = MaintenanceService(self)
         self.rules = RuleService(self)
         self.numeric = NumericSourceService(self)
+        self.unit_weights: dict[str, int] = {}  # health unit uid -> admin weight 2..5
         # entity_id -> explicit numeric sources (manual battery mapping, signal scales).
         self._numeric_aliases: dict[str, list[NumericSource]] = {}
         self.doctor = DoctorEngine(
@@ -215,7 +217,8 @@ class SentinelRuntime:
         async_update_storage_issue(self.hass, self.db.reason, self.db.path_hint)
 
         entities, devices = await self.db.run(repo.load_inventory)
-        self.inventory.load(entities, devices)
+        self._pending_inventory.extend(
+            self.inventory.load(entities, devices, self.clock.now_us()))
         await self.maintenance.async_load()
         self.doctor.restore(await self.db.run(repo.load_active_findings))
         if not self.modules_enabled["doctor"]:
@@ -225,6 +228,7 @@ class SentinelRuntime:
             closed_by_module = []
         await self.rules.async_load()
         await self.numeric.async_load()
+        await self.async_load_weights()
         self.refresh_numeric_tracking()  # before the baseline, so it includes mapped samples
         closed_by_overrides = self.doctor.set_overrides(self.rules.overrides,
                                                         self.clock.now_us())
@@ -839,7 +843,8 @@ class SentinelRuntime:
             if ent.current_alias not in self._availability:
                 continue  # no valid baseline for this entity in the current boot
             groups.setdefault(ent.device_uid or ent.uid, set()).add(ent.uid)
-        units = [HealthUnit(k, frozenset(v), covered=covered) for k, v in groups.items()]
+        units = [HealthUnit(k, frozenset(v), weight=self.unit_weights.get(k, 1), covered=covered)
+                 for k, v in groups.items()]
         # Planned maintenance leaves the denominator; muted failures do not (spec 8.2).
         excluded = {u.uid: "maintenance" for u in units
                     if u.entity_uids and all(self.maintenance.covers(e, now)
@@ -849,6 +854,69 @@ class SentinelRuntime:
         result = compute_health(units, self.doctor.active_findings(), excluded)
         result.maintenance_units = sum(1 for u in units if u.uid in excluded)
         return result
+
+    async def async_load_weights(self) -> None:
+        self.unit_weights = await self.db.run(lambda c: dict(c.execute(
+            "SELECT unit_uid, weight FROM unit_weights")))
+
+    async def set_unit_weight(self, unit_uid: str, weight: int, actor: str) -> None:
+        """Weight 1 is the default and removes the row (spec 8.3: admin may set 1..5)."""
+        if not 1 <= weight <= 5:
+            raise SentinelError(ErrorCode.VALIDATION_FAILED, "weight out of range",
+                                param="weight", min=1, max=5)
+        if unit_uid not in {c["unit"] for c in self.health().components}:
+            raise SentinelError(ErrorCode.NOT_FOUND, "unknown health unit")
+        now = self.clock.now_us()
+
+        def write(conn):
+            with repo._tx(conn):
+                if weight == 1:
+                    conn.execute("DELETE FROM unit_weights WHERE unit_uid=?", (unit_uid,))
+                else:
+                    conn.execute("INSERT INTO unit_weights(unit_uid, weight, actor_id, "
+                                 "updated_us) VALUES (?,?,?,?) ON CONFLICT(unit_uid) DO UPDATE "
+                                 "SET weight=excluded.weight, actor_id=excluded.actor_id, "
+                                 "updated_us=excluded.updated_us",
+                                 (unit_uid, weight, actor, now))
+                repo.insert_audit(conn, actor, unit_uid, "health.weight", unit_uid,
+                                  f"weight={weight}", now)
+
+        await self.db.run(write)
+        await self.async_load_weights()
+        self.bump()
+
+    def health_components(self) -> dict[str, Any]:
+        """Every part of the score and every exclusion, with readable labels (spec 8.3)."""
+        h = self.health()
+        reg = dr.async_get(self.hass)
+        ha_device = {d.uid: d.ha_device_id for d in self.inventory.devices()}
+        active: dict[str, list[str]] = {}
+        for f in self.doctor.active_findings():
+            active.setdefault(f.subject_uid, []).append(f.rule_id)
+        by_device: dict[str, list[Any]] = {}
+        for e in self.inventory.active_entities():
+            if e.device_uid:
+                by_device.setdefault(e.device_uid, []).append(e)
+        out = []
+        for c in h.components:
+            uid = c["unit"]
+            if uid in ha_device:
+                dev = reg.async_get(ha_device[uid])
+                label = (dev.name_by_user or dev.name) if dev else None
+                members = by_device.get(uid, [])
+                kind = "device"
+            else:
+                ent = self.inventory.get(uid)
+                label = ent.current_alias if ent else None
+                members = [ent] if ent else []
+                kind = "entity"
+            out.append({
+                **c, "kind": kind, "label": label or uid,
+                "entities": len(members),
+                "rules": sorted({r for m in members for r in active.get(m.uid, [])}),
+            })
+        return {"score": h.score, "score_partial": float(h.score_exact)
+                if h.score_exact is not None else None, "units": out}
 
     @property
     def degraded(self) -> bool:

@@ -28,6 +28,7 @@ WS_COMMANDS = [
     {"type": f"{DOMAIN}/rules/list"},
     {"type": f"{DOMAIN}/numeric/list"},
     {"type": f"{DOMAIN}/network/hosts/list"},
+    {"type": f"{DOMAIN}/health/components"},
     {"type": f"{DOMAIN}/incidents/list"},
     {"type": f"{DOMAIN}/subscribe"},
 ]
@@ -40,6 +41,7 @@ WS_MUTATIONS_AND_LOOKUPS = [
     {"type": f"{DOMAIN}/numeric/delete", "source_id": ANY_UUID, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/network/hosts/save", "display_name": "x", "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/network/hosts/delete", "host_id": ANY_UUID, "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/health/weight", "unit_uid": "u", "weight": 2, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/network/hosts/link", "host_id": ANY_UUID, "device_id": "d",
      "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/autopilot/draft", "alias": "x",

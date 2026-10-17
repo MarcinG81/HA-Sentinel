@@ -172,7 +172,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 
 | # | Pakiet | Rozdział | Status |
 |---|---|---|---|
-| G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | nadpisania **zrobione** (z G1); zostały wagi jednostek |
+| G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | **zrobione** |
 | G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | do zrobienia |
 | G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | do zrobienia |
 | G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | do zrobienia |
@@ -230,3 +230,8 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Sugestie powiązań z rejestru urządzeń HA: ten sam MAC (0,9), nazwa hosta z `configuration_url` (0,5), IP (0,3 — DHCP). Sugestia nigdy nie tworzy powiązania.
 - Dwa osobne stany hosta: sieć (najgorszy status zatwierdzonych endpointów; w N0 `not_probed`) i Home Assistant (dostępność encji powiązanych urządzeń). Żaden nie jest wyprowadzany z drugiego.
 - Graf: urządzenie → host `depends_on` (manual, 1,0), host → endpoint `uses_endpoint`. Usunięcie hosta zdejmuje powiązanie z celów sond.
+
+### G5 — decyzje
+
+- Wagi jednostek 1..5 (migracja v10, `unit_weights`; brak wiersza = 1), audyt każdej zmiany. `health/components` pokazuje każdą jednostkę: etykietę, aktywne reguły, karę, pokrycie, wagę i wykluczenia (8.3); karta w Przeglądzie domyślnie pokazuje tylko jednostki istotne.
+- Znaleziony błąd: encje bez wpisu w rejestrze z poprzednich startów zostawały „aktywne” obok nowej tożsamości tej samej encji (dziesiątki duplikatów w wyniku zdrowia). Przy ładowaniu inwentarza dostają teraz tombstone (6.1). Nadpisania i źródła liczbowe zostają przy tombstonie (27.1); panel ostrzega, że ustawienie dla encji bez unikalnego ID wygaśnie przy restarcie.

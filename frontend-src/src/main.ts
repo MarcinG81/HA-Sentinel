@@ -22,6 +22,7 @@ import type {
 import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
 import { renderDataCard, renderExportCard } from "./views_data.ts";
 import { renderMaintenanceCard } from "./views_maintenance.ts";
+import { renderHealthComponents } from "./views_health.ts";
 import { renderNumericCard } from "./views_numeric.ts";
 import { renderRulesCard } from "./views_rules.ts";
 import { renderNetwork } from "./views_network.ts";
@@ -423,7 +424,7 @@ class SentinelPanel extends HTMLElement {
     const maint = hl.maintenance_units > 0
       ? h("div", { class: "banner", role: "status" }, t("mnt.units").replace("{n}", String(hl.maintenance_units)))
       : null;
-    return h("div", { class: "stack" }, degraded, maint, metrics, incidents, modules);
+    return h("div", { class: "stack" }, degraded, maint, metrics, incidents, await renderHealthComponents(this.ctx), modules);
   }
 
   private capabilityTable(caps: Capability[]): HTMLElement {

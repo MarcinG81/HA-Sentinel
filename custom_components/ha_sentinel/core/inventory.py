@@ -61,16 +61,29 @@ class Inventory:
     def __len__(self) -> int:
         return sum(1 for e in self._by_uid.values() if e.deleted_at_us is None)
 
-    def load(self, entities: list[EntityRecord], devices: list[DeviceRecord]) -> None:
+    def load(self, entities: list[EntityRecord], devices: list[DeviceRecord],
+             now_us: int | None = None) -> list[InventoryChange]:
+        """Load persisted records; returns tombstones to persist.
+
+        Registry-less entities from a previous boot are never merged automatically
+        (spec 6.1): their identity ended with that boot, so they are tombstoned here
+        instead of staying "active" next to the new identity of the same entity_id.
+        """
+        changes: list[InventoryChange] = []
         for dev in devices:
             self._devices[dev.ha_device_id] = dev
         for ent in entities:
             self._by_uid[ent.uid] = ent
             if ent.registry_id is not None:
                 self._by_registry[ent.registry_id] = ent.uid
-            if ent.deleted_at_us is None and ent.registry_id is not None:
-                # Registry-less entities from a previous boot are not merged automatically.
+            if ent.deleted_at_us is not None:
+                continue
+            if ent.registry_id is not None:
                 self._by_alias[ent.current_alias] = ent.uid
+            elif now_us is not None:
+                ent.deleted_at_us = now_us
+                changes.append(InventoryChange(entity=ent))
+        return changes
 
     def get(self, uid: str) -> EntityRecord | None:
         return self._by_uid.get(uid)

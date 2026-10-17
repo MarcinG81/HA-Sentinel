@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.ha_sentinel.const import (
@@ -81,6 +82,8 @@ async def test_signal_source_requires_sampling_option(hass, hass_ws_client, free
 
 
 async def test_signal_source_raises_doc008(hass, hass_ws_client, freezer):
+    er.async_get(hass).async_get_or_create("sensor", "zha", "lqi",
+                                           suggested_object_id="plug_lqi")
     hass.states.async_set("sensor.plug_lqi", "200")
     entry, runtime = await _setup(hass, ingestion_numeric_sampling=True)
     await _tick(hass, freezer, 40)

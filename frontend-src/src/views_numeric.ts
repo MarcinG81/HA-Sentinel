@@ -9,6 +9,7 @@ interface Source {
   subject_uid: string;
   subject_label: string | null;
   subject_deleted: boolean;
+  subject_persistent: boolean;
   purpose: "battery" | "signal";
   scale_min: number;
   scale_max: number;
@@ -106,6 +107,7 @@ export async function renderNumericCard(ctx: Ctx): Promise<HTMLElement> {
     if (s.threshold !== null) parts.push(`${t("num.threshold")}: ${s.threshold}`);
     if (!s.sampling) parts.push(t("num.sampling_off"));
     if (s.subject_deleted) parts.push(t("rules.subject_gone"));
+    else if (!s.subject_persistent) parts.push(t("rules.not_persistent"));
     return parts.join(" · ");
   };
 
