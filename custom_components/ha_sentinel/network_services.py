@@ -362,7 +362,7 @@ class NetworkService:
         MAC addresses are shown truncated; IP is never a durable identity (spec 13.2).
         """
         out = []
-        for dev in dr.async_get(self.hass).devices.values():
+        for dev in dr.async_get(self.hass).devices:  # iterating yields entries (HA 2026.10+)
             macs = [v for t, v in dev.connections if t == dr.CONNECTION_NETWORK_MAC]
             url = dev.configuration_url
             if not macs and not url:

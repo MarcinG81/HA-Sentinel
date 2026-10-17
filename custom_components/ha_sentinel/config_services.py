@@ -7,7 +7,9 @@ executor, and SQLite/blob I/O runs on the DB worker (spec 2.2).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,7 +17,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from .adapters.registry import RegistrySnapshot, async_snapshot
 from .const import DATA_DIR, DOMAIN
@@ -29,10 +31,12 @@ from .modules.autopilot.model import extract
 from .modules.config_history.canonical import canonical_hash, semantic_diff, textual_diff
 from .modules.config_history.importer import PreparedImport, prepare_import
 from .modules.config_history.render import to_yaml
+from .modules.dependency_mapper import versions
 from .modules.dependency_mapper.graph import DependencyGraph, ImportedResource, build_graph
 from .modules.doctor.references import ImportRefs, evaluate
 from .repositories import history
-from .repositories.blobs import BlobStore
+from .repositories.blobs import BlobCorruptedError, BlobStore
+from .repositories.repository import _tx
 
 if TYPE_CHECKING:
     from .runtime import SentinelRuntime
@@ -53,13 +57,20 @@ class ConfigServices:
         self._graph_lock = asyncio.Lock()
         self._unsubs: list[CALLBACK_TYPE] = []
         self.ref_findings: dict[str, Finding] = {}  # "resource:<id>" -> DOC006
+        self._graph_doc: dict[str, Any] | None = None  # document of the latest revision
+        self._old_graphs: dict[int, DependencyGraph] = {}  # small cache of old revisions
 
     async def async_start(self) -> None:
         for event in (er.EVENT_ENTITY_REGISTRY_UPDATED, dr.EVENT_DEVICE_REGISTRY_UPDATED,
                       ar.EVENT_AREA_REGISTRY_UPDATED):
             self._unsubs.append(self.hass.bus.async_listen(event, self._registry_changed))
         await self.snapshot_sentinel_config()
-        await self.async_rebuild_graph()
+        await self._load_graph_head()
+        # The first build waits for the network module (runtime calls it once every
+        # module is up); building now would record a revision without network nodes.
+        # Full rebuild every 24 h even without registry events (spec 12.2).
+        self._unsubs.append(async_track_time_interval(
+            self.hass, self._daily_rebuild, timedelta(hours=24)))
 
     async def async_stop(self) -> None:
         for unsub in self._unsubs:
@@ -94,7 +105,7 @@ class ConfigServices:
         async with self._graph_lock:
             snap = async_snapshot(self.hass, self.rt.inventory)
             rows = await self.rt.db.run(lambda c: history.latest_imports(c, self.blobs))
-            revision = self.graph.revision + 1
+            revision = self.graph.revision + 1  # provisional; kept only if it changed
             net_nodes, net_edges = (self.rt.network.graph_elements()
                                     if self.rt.network is not None else ([], []))
 
@@ -117,10 +128,95 @@ class ConfigServices:
                                     extra_edges=net_edges)
                 return graph, refs
 
-            self.graph, refs = await self.hass.async_add_executor_job(build)
+            graph, refs = await self.hass.async_add_executor_job(build)
+            graph.revision = await self._record_revision(graph)
+            self.graph = graph
             self.graph_built_us = self.rt.clock.now_us()
             await self._check_references(refs, snap)
         self.rt.bump()
+
+    @callback
+    def _daily_rebuild(self, _now: Any) -> None:
+        self.schedule_graph_rebuild()
+
+    # --- Graph revisions (spec 7.2, 12.2, AC MAP 05) -------------------------------------
+
+    async def _load_graph_head(self) -> None:
+        """Continue the persisted revision sequence after a restart."""
+        head = await self.rt.db.run(lambda c: c.execute(
+            "SELECT MAX(revision) FROM graph_revisions").fetchone()[0])
+        if head is None:
+            return
+        try:
+            self._graph_doc = await self._doc_at(head)
+            self.graph.revision = head
+        except (ValueError, OSError, BlobCorruptedError):
+            _LOGGER.warning("Graph history unreadable; starting a new checkpoint")
+            self._graph_doc = None
+            self.graph.revision = head
+
+    async def _record_revision(self, graph: DependencyGraph) -> int:
+        """Persist a diff (or a checkpoint) and return the revision number to use."""
+        current = self.graph.revision
+        doc = await self.hass.async_add_executor_job(versions.to_doc, graph)
+        change = versions.diff(self._graph_doc, doc) if self._graph_doc is not None else None
+        if change == {}:
+            return current  # identical graph keeps its revision (stable ranking, AC COR 03)
+        if not self.rt.storage_writable:
+            self._graph_doc = doc
+            return current + 1
+        revision = current + 1
+        full = change is None or revision % versions.CHECKPOINT_EVERY == 1
+        payload = {"kind": "full", **doc} if full else {"kind": "diff", "diff": change}
+        now = self.rt.clock.now_us()
+        data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+        def save(conn):
+            ref = self.blobs.put(data)
+            with _tx(conn):
+                conn.execute("INSERT OR REPLACE INTO graph_revisions(revision, created_at_us, "
+                             "diff_blob_ref) VALUES (?,?,?)", (revision, now, ref))
+                # Keep KEEP_REVISIONS, but never cut a chain: start at a checkpoint.
+                floor = revision - versions.KEEP_REVISIONS
+                first = floor - (floor - 1) % versions.CHECKPOINT_EVERY
+                conn.execute("DELETE FROM graph_revisions WHERE revision < ?", (first,))
+
+        await self.rt.db.run(save)
+        self._graph_doc = doc
+        self._old_graphs.clear()
+        return revision
+
+    async def _doc_at(self, revision: int) -> dict[str, Any]:
+        def load(conn):
+            rows = conn.execute(
+                "SELECT revision, diff_blob_ref FROM graph_revisions WHERE revision <= ? AND "
+                "revision >= COALESCE((SELECT MAX(revision) FROM graph_revisions WHERE "
+                "revision <= ? AND (revision - 1) % ? = 0), 1) ORDER BY revision",
+                (revision, revision, versions.CHECKPOINT_EVERY)).fetchall()
+            if not rows or rows[-1][0] != revision:
+                raise SentinelError(ErrorCode.NOT_FOUND, "graph revision not found")
+            return [json.loads(self.blobs.get(r[1])) for r in rows]
+
+        chain = await self.rt.db.run(load)
+        return await self.hass.async_add_executor_job(versions.rebuild, chain)
+
+    async def graph_at(self, revision: int) -> DependencyGraph:
+        if revision == self.graph.revision:
+            return self.graph
+        if (cached := self._old_graphs.get(revision)) is not None:
+            return cached
+        doc = await self._doc_at(revision)
+        graph = await self.hass.async_add_executor_job(versions.from_doc, doc, revision)
+        if len(self._old_graphs) >= 2:
+            self._old_graphs.pop(next(iter(self._old_graphs)))
+        self._old_graphs[revision] = graph
+        return graph
+
+    async def list_revisions(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = await self.rt.db.run(lambda c: [tuple(r) for r in c.execute(
+            "SELECT revision, created_at_us FROM graph_revisions ORDER BY revision DESC "
+            "LIMIT ?", (limit,))])
+        return [{"revision": r, "created_at": us_to_rfc3339(t)} for r, t in rows]
 
     # --- DOC006 missing / stale references (spec 8.1, 22.1) ------------------------------
 

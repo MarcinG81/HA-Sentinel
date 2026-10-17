@@ -177,7 +177,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | **zrobione** |
 | G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | **zrobione** |
 | G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | **zrobione** (z G2b) |
-| G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | do zrobienia |
+| G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | **zrobione** |
 | G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | do zrobienia |
 | G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | do zrobienia |
 | G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | do zrobienia |
@@ -255,3 +255,13 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Sygnał: zmiana `last_triggered` tylko dla automatyzacji z kalendarzem; to zaobserwowany start, nie dowód sukcesu sekwencji (2.3).
 - Koniec okna: start w oknie → ok; automatyzacja wyłączona, niedostępna albo luka w monitoringu → nieznane (bez findingu); w pozostałych przypadkach DOC007 (WARNING). Kolejny start zamyka finding.
 - Znaleziony błąd: po zmianie nadpisań nowy termin (heartbeat, okno DOC007) czekał na najbliższą partię obserwacji, zanim uzbrojono timer — przy cichej encji nigdy. Timer jest teraz przeplanowywany przy każdej zmianie reguł.
+
+### G10 — decyzje i znalezione błędy
+
+- `graph_revisions`: każda zmiana grafu to blob z diffem (węzły/krawędzie dodane i usunięte), co 20 rewizji pełny checkpoint; stary graf = checkpoint + ≤ 19 diffów. Retencja 200 rewizji, cięcie zawsze na checkpoincie; bloby grafu chronione przed purge osieroconych blobów; usuwane razem z zakresem „historia konfiguracji”.
+- Identyczny graf zachowuje numer rewizji (stały ranking, AC COR 03); numeracja ciągła po restarcie. Encje bez wpisu w rejestrze zmieniają tożsamość przy każdym starcie (6.1), więc ich obecność daje jedną nową rewizję na start — to zamierzone.
+- `graph/query` z `revision` (AC MAP 05) i `continuation_cursor` (strona ≤ 3000 krawędzi / 1000 węzłów, przejście ograniczone do 50 000 krawędzi, kursor związany z użytkownikiem i parametrami); `graph/revisions`. Pełna przebudowa co 24 h. Panel: wybór rewizji, baner widoku historycznego, „pokaż więcej”.
+- Błąd (AC MAP 01): po zmianie nazwy encji, zanim przyszedł nowy stan, graf tworzył drugi węzeł (UID szukany po aliasie). Teraz najpierw po ID wpisu rejestru.
+- Błąd: urządzenie samego Sentinela trafiało do grafu domu; wykluczone.
+- Pierwsza budowa grafu po starcie wszystkich modułów (wcześniej powstawała rewizja bez węzłów sieciowych i druga zaraz po niej).
+- `device_registry.devices` iterowane zgodnie z HA 2026.10 (stary dostęp jak do mapy przestanie działać w 2027.9).

@@ -29,6 +29,7 @@ WS_COMMANDS = [
     {"type": f"{DOMAIN}/numeric/list"},
     {"type": f"{DOMAIN}/network/hosts/list"},
     {"type": f"{DOMAIN}/health/components"},
+    {"type": f"{DOMAIN}/graph/revisions"},
     {"type": f"{DOMAIN}/incidents/list"},
     {"type": f"{DOMAIN}/subscribe"},
 ]

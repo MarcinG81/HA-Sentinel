@@ -459,10 +459,19 @@ function nodeLine(ctx: Ctx, n: GraphNode): HTMLElement[] {
 async function renderNeighbourhood(ctx: Ctx, uid: string): Promise<HTMLElement> {
   const { t, state } = ctx;
   let res: GraphQueryResult;
+  const query = { type: "ha_sentinel/graph/query", uid, direction: state.mapDirection, depth: state.mapDepth, include_grouping: state.mapGrouping };
+  let revisions: { revision: number; created_at: string }[] = [];
   try {
-    res = await ctx.ws<GraphQueryResult>({ type: "ha_sentinel/graph/query", uid, direction: state.mapDirection, depth: state.mapDepth, include_grouping: state.mapGrouping });
+    [res, { items: revisions }] = await Promise.all([
+      ctx.ws<GraphQueryResult>({ ...query, ...(state.mapRevision !== null ? { revision: state.mapRevision } : {}) }),
+      ctx.ws<{ items: { revision: number; created_at: string }[] }>({ type: "ha_sentinel/graph/revisions" }),
+    ]);
   } catch (e) {
     if ((e as WsError).code === "not_found") {
+      if (state.mapRevision !== null) {
+        state.mapRevision = null; // object did not exist in that revision
+        return h("div", { class: "banner", role: "alert" }, t("map.not_in_revision"));
+      }
       state.mapUid = null;
       return h("div", { class: "banner", role: "alert" }, t("map.gone"));
     }
@@ -482,6 +491,11 @@ async function renderNeighbourhood(ctx: Ctx, uid: string): Promise<HTMLElement> 
     ),
     h("label", { class: "row check" }, t("map.depth"), h("select", { onchange: (e: Event) => { state.mapDepth = Number((e.target as HTMLSelectElement).value); ctx.rerender(); } }, [1, 2, 3, 4, 5].map((d) => h("option", { value: String(d), selected: d === state.mapDepth }, String(d))))),
     h("label", { class: "row check" }, h("input", { type: "checkbox", checked: state.mapGrouping, onchange: (e: Event) => { state.mapGrouping = (e.target as HTMLInputElement).checked; ctx.rerender(); } }), t("map.grouping")),
+    revisions.length > 1
+      ? h("label", { class: "row check" }, t("map.revision"), h("select", { onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; state.mapRevision = v === "" ? null : Number(v); ctx.rerender(); } },
+          h("option", { value: "", selected: state.mapRevision === null }, t("map.revision_current")),
+          revisions.slice(1).map((r) => h("option", { value: String(r.revision), selected: state.mapRevision === r.revision }, `${r.revision} · ${ctx.date(r.created_at)}`))))
+      : null,
   );
   const edgeRow = (e: GraphEdge) => {
     const other = byUid.get(state.mapDirection === "dependents" ? e.from : e.to);
@@ -496,12 +510,27 @@ async function renderNeighbourhood(ctx: Ctx, uid: string): Promise<HTMLElement> 
     );
   };
   const incompleteSources = res.nodes.filter((n) => n.metadata && n.metadata.complete === false);
+  const tbody = h("tbody", {}, res.edges.map(edgeRow));
+  let cursor = res.continuation_cursor ?? null;
+  const more = cursor
+    ? h("button", {
+        class: "secondary", type: "button",
+        onclick: async () => {
+          const page = await ctx.ws<GraphQueryResult>({ ...query, cursor });
+          for (const n of page.nodes) byUid.set(n.uid, n);
+          page.edges.forEach((e) => tbody.appendChild(edgeRow(e)));
+          cursor = page.continuation_cursor ?? null;
+          if (!cursor) more?.remove();
+        },
+      }, t("map.more"))
+    : null;
   return h(
     "section",
     { class: "card", "aria-labelledby": "h-nb" },
     h("div", { class: "row spread" }, h("h2", { id: "h-nb" }, root.label), h("span", { class: `badge type-${root.type}` }, t(`node.${root.type}`))),
     root.external_ref ? h("p", {}, h("code", {}, root.external_ref)) : null,
     controls,
+    state.mapRevision !== null ? h("div", { class: "banner", role: "note" }, t("map.historic").replace("{r}", String(res.graph_revision))) : null,
     res.truncated ? h("div", { class: "banner", role: "note" }, t("map.truncated")) : null,
     incompleteSources.length ? h("div", { class: "banner", role: "note" }, t("map.incomplete")) : null,
     res.unresolved_count ? h("p", { class: "muted" }, `${t("map.unresolved")}: ${res.unresolved_count}`) : null,
@@ -512,8 +541,9 @@ async function renderNeighbourhood(ctx: Ctx, uid: string): Promise<HTMLElement> 
           { class: "edges" },
           h("caption", { class: "sr-only" }, t(`map.${state.mapDirection}`)),
           h("thead", {}, h("tr", {}, h("th", { scope: "col" }, t("map.object")), h("th", { scope: "col" }, t("map.relation")), h("th", { scope: "col" }, t("map.source")))),
-          h("tbody", {}, res.edges.map(edgeRow)),
+          tbody,
         ),
+    more ? h("div", { class: "actions" }, more) : null,
     h("p", { class: "muted" }, `${t("map.revision")} ${res.graph_revision} · ${ctx.date(res.built_at, true)}`),
   );
 }

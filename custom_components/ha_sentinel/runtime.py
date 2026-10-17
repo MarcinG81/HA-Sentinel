@@ -289,7 +289,7 @@ class SentinelRuntime:
             self.module_states["network"] = ModuleState.DISABLED
         self.capabilities["network.probe"] = Capability("network.probe", status, reason)
         if self.config is not None:
-            self.config.schedule_graph_rebuild()
+            await self.config.async_rebuild_graph()  # all graph sources are up now
         config_ready = self.module_states.get("config_history") is ModuleState.READY
         if self.config is not None and config_ready:
             self.changes = ChangeService(self)
@@ -306,6 +306,9 @@ class SentinelRuntime:
         self._update_degradation(0)
         if self.state is ModuleState.STARTING:
             self.state = ModuleState.READY
+        if self.config is not None:
+            # Reference checks (DOC006) need a ready inventory; same graph, no new revision.
+            self.config.schedule_graph_rebuild()
 
     async def async_stop(self) -> None:
         self.state = ModuleState.STOPPING

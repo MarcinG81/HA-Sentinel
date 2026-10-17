@@ -108,6 +108,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_network_hosts_link,
         ws_health_components,
         ws_health_weight,
+        ws_graph_revisions,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -144,7 +145,7 @@ MODULE_OF_PREFIX = {
     "import/": "config_history", "snapshots/": "config_history",
     "resources/": "config_history", "managed/": "config_history", "changes/": "config_history",
     "autopilot/": "autopilot",
-    "graph/query": "dependency_mapper",
+    "graph/query": "dependency_mapper", "graph/revisions": "dependency_mapper",
     "network/": "network",
 }
 
@@ -665,20 +666,48 @@ async def ws_autopilot_draft(hass, connection, msg, runtime) -> None:
                                                                   "dependencies"]),
         vol.Optional("depth", default=2): vol.All(int, vol.Range(min=1, max=5)),
         vol.Optional("include_grouping", default=False): bool,
+        vol.Optional("revision"): vol.All(int, vol.Range(min=0)),
+        vol.Optional("cursor"): vol.All(str, vol.Length(max=500)),
     }
 )
 @_require_admin
 @websocket_api.async_response
 @_guarded(RequestClass.QUERY)
 async def ws_graph_query(hass, connection, msg, runtime) -> None:
+    """Neighbourhood on the current or an older revision (AC MAP 05), paged by cursor."""
     cfg = _config(runtime)
-    graph = cfg.graph
+    filters = [msg["uid"], msg["direction"], msg["depth"], msg["include_grouping"]]
+    revision, offset = msg.get("revision"), 0
+    if "cursor" in msg:
+        try:
+            data = json.loads(base64.urlsafe_b64decode(msg["cursor"].encode()))
+            if data["u"] != connection.user.id or data["f"] != filters:
+                raise ValueError("cursor bound to another request")
+            revision, offset = int(data["r"]), int(data["o"])
+        except (ValueError, KeyError, TypeError) as err:
+            raise SentinelError(ErrorCode.INVALID_REQUEST, "invalid cursor") from err
+    graph = cfg.graph if revision is None else await cfg.graph_at(revision)
     result = await hass.async_add_executor_job(
-        graph.query, msg["uid"], msg["direction"], msg["depth"], msg["include_grouping"])
+        graph.query, msg["uid"], msg["direction"], msg["depth"], msg["include_grouping"],
+        offset)
     if not result["found"]:
         raise SentinelError(ErrorCode.NOT_FOUND, "node not found")
+    nxt = result.pop("next_offset")
+    result["continuation_cursor"] = base64.urlsafe_b64encode(json.dumps(
+        {"u": connection.user.id, "f": filters, "r": graph.revision, "o": nxt}).encode()
+    ).decode() if nxt is not None else None
+    result["current_revision"] = cfg.graph.revision
     result["built_at"] = us_to_rfc3339(cfg.graph_built_us) if cfg.graph_built_us else None
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(_schema("graph/revisions"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_graph_revisions(hass, connection, msg, runtime) -> None:
+    connection.send_result(msg["id"], {"items": await _config(runtime).list_revisions(),
+                                       "current": _config(runtime).graph.revision})
 
 
 @websocket_api.websocket_command(

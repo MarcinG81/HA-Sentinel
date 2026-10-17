@@ -276,6 +276,8 @@ export interface GraphQueryResult {
   edges: GraphEdge[];
   truncated: boolean;
   graph_revision: number;
+  current_revision?: number;
+  continuation_cursor?: string | null;
   unresolved_count: number;
   built_at: string | null;
 }

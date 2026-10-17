@@ -17,6 +17,7 @@ from ..autopilot.model import ResourceModel
 MAX_DEPTH = 5
 MAX_NODES = 1000
 MAX_EDGES = 3000
+TOTAL_EDGE_CAP = 50_000
 CAUSAL = frozenset({"reads", "provided_by", "managed_by", "depends_on", "calls"})
 CONF_EXPLICIT = 1.0
 CONF_BLUEPRINT_INPUT = 0.8
@@ -120,23 +121,25 @@ class DependencyGraph:
         return hits[:limit]
 
     def query(self, uid: str, direction: str, depth: int,
-              include_grouping: bool = False) -> dict[str, Any]:
-        """BFS with visited set; cycles terminate; limits produce truncated=True (spec 12.2).
+              include_grouping: bool = False, offset: int = 0) -> dict[str, Any]:
+        """BFS with visited set; cycles terminate; limits page the answer (spec 12.2).
 
         direction="dependents" answers "what depends on this object" (reverse edges);
-        "dependencies" answers "what does this object depend on".
+        "dependencies" answers "what does this object depend on". A page holds at most
+        MAX_EDGES edges and MAX_NODES nodes; `next_offset` continues a truncated answer
+        on the same revision. The walk itself stops at TOTAL_EDGE_CAP edges.
         """
         depth = max(1, min(depth, MAX_DEPTH))
         if uid not in self.nodes:
             return {"found": False, "nodes": [], "edges": [], "truncated": False,
-                    "graph_revision": self.revision, "unresolved_count": 0}
+                    "next_offset": None, "graph_revision": self.revision,
+                    "unresolved_count": 0}
         index = self._in if direction == "dependents" else self._out
         visited = {uid}
-        nodes = [self.nodes[uid]]
-        edges: list[Edge] = []
-        truncated = False
+        ordered: list[Edge] = []
+        capped = False
         queue: deque[tuple[str, int]] = deque([(uid, 0)])
-        while queue:
+        while queue and not capped:
             current, d = queue.popleft()
             if d >= depth:
                 continue
@@ -144,26 +147,38 @@ class DependencyGraph:
                                key=lambda e: (e.relation, e.from_uid, e.to_uid)):
                 if edge.relation == "member_of" and not include_grouping:
                     continue
-                if len(edges) >= MAX_EDGES:
-                    truncated = True
+                if len(ordered) >= TOTAL_EDGE_CAP:
+                    capped = True
                     break
                 nxt = edge.from_uid if direction == "dependents" else edge.to_uid
                 if nxt not in visited:
-                    if len(nodes) >= MAX_NODES:
-                        truncated = True
-                        continue
                     visited.add(nxt)
-                    nodes.append(self.nodes[nxt])
                     # controls is a potential effect, not an availability dependency:
                     # list it but do not traverse further through it (spec 9.2, 12.2).
                     if edge.relation in CAUSAL:
                         queue.append((nxt, d + 1))
-                edges.append(edge)
+                ordered.append(edge)
+        page: list[Edge] = []
+        node_ids: list[str] = [uid] if offset == 0 else []
+        seen_nodes = set(node_ids)
+        i = offset
+        while i < len(ordered) and len(page) < MAX_EDGES:
+            edge = ordered[i]
+            new = [n for n in (edge.from_uid, edge.to_uid) if n not in seen_nodes]
+            if len(node_ids) + len(new) > MAX_NODES:
+                break
+            node_ids += new
+            seen_nodes.update(new)
+            page.append(edge)
+            i += 1
+        more = i < len(ordered)
+        nodes = [self.nodes[n] for n in node_ids if n in self.nodes]
         return {
             "found": True,
             "nodes": [n.as_dict() for n in nodes],
-            "edges": [e.as_dict() for e in edges],
-            "truncated": truncated,
+            "edges": [e.as_dict() for e in page],
+            "truncated": more or capped,
+            "next_offset": i if more else None,
             "graph_revision": self.revision,
             "unresolved_count": sum(1 for n in nodes if n.type == "unresolved_reference"),
         }

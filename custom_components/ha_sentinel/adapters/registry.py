@@ -53,7 +53,9 @@ def async_snapshot(hass: HomeAssistant, inventory: Inventory) -> RegistrySnapsho
     for entry in ent_reg.entities.values():
         if not is_observed(entry.entity_id) or entry.platform == DOMAIN:
             continue
-        uid = inventory.uid_for_alias(entry.entity_id) or f"entity:{entry.id}"
+        # Registry id first: a rename must not create a second node (AC MAP 01).
+        uid = (inventory.uid_for_registry(entry.id) or inventory.uid_for_alias(entry.entity_id)
+               or f"entity:{entry.id}")
         state = hass.states.get(entry.entity_id)
         entities.append(EntityInfo(
             uid=uid, entity_id=entry.entity_id,
@@ -71,10 +73,12 @@ def async_snapshot(hass: HomeAssistant, inventory: Inventory) -> RegistrySnapsho
         entities.append(EntityInfo(uid, state.entity_id, state.name, None, None, None))
         seen.add(state.entity_id)
 
+    # Sentinel's own device is not part of the home being monitored.
+    own = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
     devices = [
         DeviceInfo(d.id, d.name_by_user or d.name, d.area_id,
                    (d.config_entry_id,) if d.config_entry_id else ())
-        for d in dev_reg.devices.values()
+        for d in dev_reg.devices if d.config_entry_id not in own
     ]
     entries = [EntryInfo(e.entry_id, e.domain, e.title)
                for e in hass.config_entries.async_entries()]

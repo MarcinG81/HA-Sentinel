@@ -203,6 +203,9 @@ def referenced_blobs(conn: sqlite3.Connection) -> set[str]:
         refs.add(row[0])
         if row[1]:
             refs.add(row[1])
+    for row in conn.execute("SELECT diff_blob_ref FROM graph_revisions "
+                            "WHERE diff_blob_ref IS NOT NULL"):
+        refs.add(row[0])
     return refs
 
 
@@ -217,7 +220,8 @@ DELETE_SCOPES = {
     "observations": ("observations", "coverage", "checkpoints"),
     "incidents": ("notification_outbox", "incident_evidence", "incidents",
                   "finding_evidence", "findings"),
-    "config_history": ("operations", "change_plans", "snapshots", "resources"),
+    "config_history": ("operations", "change_plans", "snapshots", "resources",
+                       "graph_revisions"),
 }
 
 

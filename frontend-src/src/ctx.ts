@@ -17,6 +17,7 @@ export interface E3State {
   mapQuery: string;
   mapHits: GraphNode[] | null;
   mapGrouping: boolean;
+  mapRevision: number | null; // null = current graph
   exportScopes: string[];
   exportRedacted: boolean;
   exportJob: string | null;
@@ -41,6 +42,7 @@ export function initialE3State(): E3State {
     mapQuery: "",
     mapHits: null,
     mapGrouping: false,
+    mapRevision: null,
     exportScopes: ["diagnostics", "incidents"],
     exportRedacted: true,
     exportJob: null,

@@ -56,7 +56,7 @@ class HostService:
 
     def _devices(self) -> list[DeviceNet]:
         out = []
-        for dev in dr.async_get(self.hass).devices.values():
+        for dev in dr.async_get(self.hass).devices:  # iterating yields entries (HA 2026.10+)
             macs = tuple(v for t, v in dev.connections if t == dr.CONNECTION_NETWORK_MAC)
             host = url_host(dev.configuration_url)
             if macs or host:

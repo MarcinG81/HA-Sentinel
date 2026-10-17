@@ -88,6 +88,10 @@ class Inventory:
     def get(self, uid: str) -> EntityRecord | None:
         return self._by_uid.get(uid)
 
+    def uid_for_registry(self, registry_id: str) -> str | None:
+        """Stable lookup that survives a rename not yet seen in a state event."""
+        return self._by_registry.get(registry_id)
+
     def uid_for_alias(self, entity_id: str) -> str | None:
         return self._by_alias.get(entity_id)
 
