@@ -169,6 +169,53 @@ class DependencyGraph:
         }
 
 
+# Relations RCA follows upwards; areas, controls and reads are excluded (spec 9.2).
+RCA_RELATIONS = frozenset({"provided_by", "managed_by", "depends_on", "uses_endpoint"})
+RCA_MIN_CONFIDENCE = 0.5
+
+
+def ancestors(graph: DependencyGraph, uid: str, max_hops: int = 3) -> dict[str, tuple[int, float]]:
+    """Candidates up to `max_hops` dependency edges up: uid -> (hops, best path confidence)."""
+    best: dict[str, tuple[int, float]] = {}
+    frontier: list[tuple[str, int, float]] = [(uid, 0, 1.0)]
+    while frontier:
+        nxt: list[tuple[str, int, float]] = []
+        for current, hops, conf in frontier:
+            if hops >= max_hops:
+                continue
+            for edge in graph._out.get(current, []):
+                if edge.relation not in RCA_RELATIONS or edge.confidence < RCA_MIN_CONFIDENCE:
+                    continue
+                c = conf * edge.confidence
+                prev = best.get(edge.to_uid)
+                if prev is None or c > prev[1] or (c == prev[1] and hops + 1 < prev[0]):
+                    best[edge.to_uid] = (hops + 1, c)
+                    nxt.append((edge.to_uid, hops + 1, c))
+        frontier = nxt
+    best.pop(uid, None)
+    return best
+
+
+def dependent_entities(graph: DependencyGraph, uid: str, max_hops: int = 3) -> set[str]:
+    """Entity nodes that depend on `uid` through RCA relations (reverse traversal)."""
+    seen = {uid}
+    out: set[str] = set()
+    frontier = [uid]
+    for _ in range(max_hops):
+        nxt: list[str] = []
+        for current in frontier:
+            for edge in graph._in.get(current, []):
+                if edge.relation not in RCA_RELATIONS or edge.from_uid in seen:
+                    continue
+                seen.add(edge.from_uid)
+                nxt.append(edge.from_uid)
+                node = graph.nodes.get(edge.from_uid)
+                if node is not None and node.type == "entity":
+                    out.add(edge.from_uid)
+        frontier = nxt
+    return out
+
+
 def build_graph(
     *,
     entities: list[EntityInfo],

@@ -168,10 +168,7 @@ def load_inventory(conn: sqlite3.Connection) -> tuple[list[EntityRecord], list[D
 
 
 def upsert_finding(conn: sqlite3.Connection, f: Finding, now_us: int) -> None:
-    """Persist a finding and its incident in a single transaction (spec 8.2).
-
-    MVP: one incident per finding fingerprint; multi-finding correlation is R1 (B19).
-    """
+    """Persist a finding and its evidence. Incidents are derived by sync_incidents."""
     with _tx(conn):
         conn.execute(
             "INSERT INTO findings(id, fingerprint, rule_id, rule_version, subject_uid, status, "
@@ -189,34 +186,125 @@ def upsert_finding(conn: sqlite3.Connection, f: Finding, now_us: int) -> None:
                 "summary_json) VALUES (?, (SELECT id FROM observations WHERE id=?), ?, ?)",
                 (f.id, obs_id, obs_id, dumps_strict({"rule_id": f.rule_id})),
             )
-        if f.status is FindingStatus.PENDING:
-            return
-        active = conn.execute(
-            "SELECT id, revision FROM incidents WHERE fingerprint=? AND status IN "
-            "('open','acknowledged','suppressed')",
-            (f.fingerprint,),
-        ).fetchone()
-        if f.status is FindingStatus.ACTIVE and active is None:
-            incident_id = new_uuid()
+
+
+def load_active_incidents(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT id, fingerprint, opened_at_us, summary_json FROM incidents "
+        "WHERE status IN ('open','acknowledged','suppressed')"
+    ).fetchall()
+    out = []
+    for r in rows:
+        summary = json.loads(r["summary_json"])
+        out.append({"id": r["id"], "fingerprint": r["fingerprint"],
+                    "opened_at_us": r["opened_at_us"],
+                    "finding_ids": summary.get("finding_ids", []),
+                    "root_uid": summary.get("root_uid")})
+    return out
+
+
+_KEEP_ON_UPDATE = ("confirmed_cause",)
+
+
+def sync_incidents(conn: sqlite3.Connection, plans: list, now_us: int) -> bool:
+    """Apply correlator plans in one transaction (spec 9.1). Returns True if anything changed.
+
+    - new fingerprint -> open incident + notification outbox entry
+    - changed members, severity or hypotheses -> revision + 1
+    - merged incidents -> resolved with summary.merged_into (not a recovery claim)
+    - active incidents without any active finding -> resolved (recovery observed)
+    """
+    changed = False
+    with _tx(conn):
+        active = {
+            r["fingerprint"]: r for r in conn.execute(
+                "SELECT id, fingerprint, severity, summary_json FROM incidents "
+                "WHERE status IN ('open','acknowledged','suppressed')"
+            ).fetchall()
+        }
+        planned: set[str] = set()
+        merged: dict[str, str] = {}
+        for plan in plans:
+            planned.add(plan.fingerprint)
+            summary = {
+                "title_key": plan.title_key,
+                "finding_ids": plan.finding_ids,
+                "subject_uid": plan.subject_uid,
+                "root_uid": plan.root_uid,
+                "member_count": len(plan.finding_ids),
+                "hypotheses": plan.hypotheses,
+            }
+            row = active.get(plan.fingerprint)
+            if row is None:
+                incident_id = new_uuid()
+                conn.execute(
+                    "INSERT INTO incidents(id, fingerprint, status, severity, opened_at_us, "
+                    "updated_at_us, revision, summary_json) VALUES (?,?,?,?,?,?,?,?)",
+                    (incident_id, plan.fingerprint, str(IncidentStatus.OPEN),
+                     str(plan.severity), plan.opened_at_us, now_us, 1, dumps_strict(summary)),
+                )
+                conn.execute(
+                    "INSERT INTO notification_outbox(id, incident_id, revision, state, "
+                    "next_try_us) VALUES (?,?,?,?,?)",
+                    (new_uuid(), incident_id, 1, "pending", now_us),
+                )
+                changed = True
+            else:
+                incident_id = row["id"]
+                old = json.loads(row["summary_json"])
+                for key in _KEEP_ON_UPDATE:
+                    if key in old:
+                        summary[key] = old[key]
+                if old != summary or row["severity"] != str(plan.severity):
+                    conn.execute(
+                        "UPDATE incidents SET summary_json=?, severity=?, updated_at_us=?, "
+                        "revision=revision+1 WHERE id=?",
+                        (dumps_strict(summary), str(plan.severity), now_us, incident_id),
+                    )
+                    changed = True
+            for merged_id in plan.merge_incident_ids:
+                merged[merged_id] = incident_id
+        for fp, row in active.items():
+            if fp in planned:
+                continue
+            summary = json.loads(row["summary_json"])
+            if row["id"] in merged:
+                summary["merged_into"] = merged[row["id"]]
             conn.execute(
-                "INSERT INTO incidents(id, fingerprint, status, severity, opened_at_us, "
-                "updated_at_us, revision, summary_json) VALUES (?,?,?,?,?,?,?,?)",
-                (incident_id, f.fingerprint, str(IncidentStatus.OPEN), str(f.severity),
-                 f.first_seen_us, now_us, 1,
-                 dumps_strict({"title_key": f"rule.{f.rule_id}", "finding_ids": [f.id],
-                               "subject_uid": f.subject_uid})),
+                "UPDATE incidents SET status='resolved', resolved_at_us=?, updated_at_us=?, "
+                "summary_json=?, revision=revision+1 WHERE id=?",
+                (now_us, now_us, dumps_strict(summary), row["id"]),
             )
-            conn.execute(
-                "INSERT INTO notification_outbox(id, incident_id, revision, state, next_try_us) "
-                "VALUES (?,?,?,?,?)",
-                (new_uuid(), incident_id, 1, "pending", now_us),
-            )
-        elif f.status is FindingStatus.RESOLVED and active is not None:
-            conn.execute(
-                "UPDATE incidents SET status=?, resolved_at_us=?, updated_at_us=?, "
-                "revision=revision+1 WHERE id=?",
-                (str(IncidentStatus.RESOLVED), f.resolved_at_us, now_us, active["id"]),
-            )
+            changed = True
+    return changed
+
+
+def confirm_cause(conn: sqlite3.Connection, incident_id: str, expected_revision: int,
+                  candidate_uid: str | None, verdict: str, actor_id: str, request_id: str,
+                  now_us: int) -> dict:
+    """Admin assessment of a hypothesis, stored separately from the ranking (spec 9.2).
+
+    The caller owns the transaction (see run_idempotent).
+    """
+    from ..core.errors import ErrorCode, SentinelError
+
+    _load_for_mutation(conn, incident_id, expected_revision)
+    row = conn.execute("SELECT summary_json FROM incidents WHERE id=?", (incident_id,)).fetchone()
+    summary = json.loads(row["summary_json"])
+    known = {h["candidate_uid"] for h in summary.get("hypotheses", [])}
+    if candidate_uid is not None and candidate_uid not in known:
+        raise SentinelError(ErrorCode.INVALID_REQUEST, "unknown hypothesis candidate")
+    summary["confirmed_cause"] = (
+        None if candidate_uid is None else
+        {"candidate_uid": candidate_uid, "verdict": verdict, "by": actor_id, "at_us": now_us}
+    )
+    conn.execute(
+        "UPDATE incidents SET summary_json=?, updated_at_us=?, revision=revision+1 WHERE id=?",
+        (dumps_strict(summary), now_us, incident_id),
+    )
+    insert_audit(conn, actor_id, request_id, f"incident.cause.{verdict}", incident_id, "ok",
+                 now_us)
+    return {"revision": expected_revision + 1}
 
 
 def count_active_incidents(conn: sqlite3.Connection) -> int:

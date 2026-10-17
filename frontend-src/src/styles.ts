@@ -141,6 +141,16 @@ table.diff th, table.edges th { width: auto; }
 .op-replace, .lvl-warning { color: var(--warning-color, #ffa600); }
 .lvl-unsupported { color: var(--secondary-text-color); }
 .type-unresolved_reference { color: var(--error-color, #db4437); }
+.hyp { border-top: 1px solid var(--divider-color); padding: 12px 0; }
+.hyp:first-of-type { border-top: 0; }
+.hyp .title { font-weight: 500; overflow-wrap: anywhere; }
+.hyp .sub { color: var(--secondary-text-color); font-size: 13px; margin-top: 2px; }
+table.features { width: auto; margin-top: 8px; }
+table.features th, table.features td { width: auto; text-align: center; padding: 4px 10px; font-variant-numeric: tabular-nums; }
+.small-text { font-size: 12px; }
+.hyp-strong { color: var(--error-color, #db4437); }
+.hyp-possible { color: var(--warning-color, #ffa600); }
+.hyp-none { color: var(--secondary-text-color); }
 @media (max-width: 600px) {
   .grid2 { grid-template-columns: 1fr; }
   main { padding: 12px; }

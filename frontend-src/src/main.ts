@@ -19,6 +19,7 @@ import type {
   Subject,
   WsError,
 } from "./types.ts";
+import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
 import { renderAutopilot, renderHistory, renderMap } from "./views_e3.ts";
 
 type View = "overview" | "doctor" | "history" | "autopilot" | "map" | "network" | "diagnostics" | "settings";
@@ -417,8 +418,14 @@ class SentinelPanel extends HTMLElement {
           h(
             "button",
             { class: "item", onclick: () => this.select("doctor", i.id) },
-            h("div", { class: "row spread" }, h("span", { class: "title" }, t(`rule.${i.rule_id}`)), this.severityBadge(i.severity)),
-            h("div", { class: "sub" }, this.subjectText(i.subject), i.subject.entity_id && i.subject.name ? ` · ${i.subject.entity_id}` : ""),
+            h("div", { class: "row spread" }, h("span", { class: "title" }, incidentTitle(this.ctx, i)), this.severityBadge(i.severity)),
+            i.kind === "infrastructure"
+              ? h("div", { class: "sub" }, t("incident.members").replace("{n}", String(i.member_count)))
+              : h("div", { class: "sub" }, this.subjectText(i.subject), i.subject.entity_id && i.subject.name ? ` · ${i.subject.entity_id}` : ""),
+            i.top_hypothesis && i.top_hypothesis.label !== "none"
+              ? h("div", { class: "sub" }, hypothesisLine(this.ctx, i.top_hypothesis.label, i.top_hypothesis.candidate_label))
+              : null,
+            i.merged_into ? h("div", { class: "sub" }, t("incident.merged")) : null,
             h("div", { class: "sub" }, `${t(`status.${i.status}`)} · ${t("detail.first_seen")} ${this.date(i.opened_at)}`),
           ),
         ),
@@ -481,14 +488,15 @@ class SentinelPanel extends HTMLElement {
     const head = h(
       "section",
       { class: "card" },
-      h("div", { class: "row spread" }, h("h2", {}, t(`rule.${inc.rule_id}`)), this.severityBadge(inc.severity)),
+      h("div", { class: "row spread" }, h("h2", {}, incidentTitle(this.ctx, inc)), this.severityBadge(inc.severity)),
       h(
         "dl",
         {},
         h("dt", {}, t("detail.status")),
         h("dd", {}, t(`status.${inc.status}`)),
-        h("dt", {}, t("detail.entity")),
-        h("dd", {}, this.subjectText(inc.subject), inc.subject.entity_id ? h("div", {}, h("code", {}, inc.subject.entity_id)) : null),
+        inc.kind === "infrastructure"
+          ? [h("dt", {}, t("detail.effects")), h("dd", {}, t("incident.members").replace("{n}", String(inc.member_count)))]
+          : [h("dt", {}, t("detail.entity")), h("dd", {}, this.subjectText(inc.subject), inc.subject.entity_id ? h("div", {}, h("code", {}, inc.subject.entity_id)) : null)],
         h("dt", {}, t("detail.opened")),
         h("dd", {}, this.date(inc.opened_at, true)),
         inc.resolved_at ? [h("dt", {}, t("detail.resolved")), h("dd", {}, this.date(inc.resolved_at, true))] : null,
@@ -510,31 +518,22 @@ class SentinelPanel extends HTMLElement {
         h(
           "div",
           {},
+          inc.kind === "infrastructure" ? h("h3", {}, this.subjectText(f.subject)) : null,
           h("p", { class: "muted" }, `${f.rule_id} v${f.rule_version} · ${t(`status.${f.status === "active" ? "open" : f.status}`)} · ${t("detail.coverage")}: ${t(`cov.${f.coverage}`)}`),
           h("p", {}, `${t("detail.first_seen")} ${this.date(f.first_seen, true)}`),
           h("ul", { class: "list" }, f.evidence.map((e) => h("li", {}, this.evidenceRow(e)))),
         ),
       ),
     );
-    const hypothesis = h(
-      "section",
-      { class: "card", "aria-labelledby": "h-hyp" },
-      h("h2", { id: "h-hyp" }, t("detail.hypothesis")),
-      h("p", { class: "muted" }, t("detail.no_hypothesis")),
-    );
-    const counter = h(
-      "section",
-      { class: "card", "aria-labelledby": "h-ctr" },
-      h("h2", { id: "h-ctr" }, t("detail.counter")),
-      h("p", { class: "muted" }, t("detail.no_counter")),
-    );
+    const hypothesis = renderHypotheses(this.ctx, inc, () => void this.render(true));
+    const counter = renderCounterEvidence(this.ctx, inc);
     const rec = h(
       "section",
       { class: "card", "aria-labelledby": "h-rec" },
       h("h2", { id: "h-rec" }, t("detail.recommendation")),
-      h("p", {}, t(`rec.${inc.rule_id}`)),
+      h("p", {}, t(inc.kind === "infrastructure" ? "rec.infrastructure" : `rec.${inc.rule_id}`)),
     );
-    return h("div", { class: "stack" }, back, coverageBanner, head, observation, h("div", { class: "grid" }, hypothesis, counter), rec);
+    return h("div", { class: "stack" }, back, coverageBanner, head, hypothesis, counter, observation, rec);
   }
 
   private evidenceRow(e: Evidence): HTMLElement {

@@ -1,0 +1,1 @@
+"""HA Sentinel package."""

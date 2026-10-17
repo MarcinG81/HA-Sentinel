@@ -112,6 +112,11 @@ class DoctorEngine:
     def active_findings(self) -> list[Finding]:
         return [f for f in self._findings.values() if f.status is FindingStatus.ACTIVE]
 
+    def availability_snapshot(self) -> dict[str, Availability]:
+        """Current availability of every subject seen in this boot (for correlation)."""
+        return {uid: st.availability for uid, st in self._entities.items()
+                if st.availability is not None}
+
     def next_deadline_us(self) -> int | None:
         return self._heap[0][0] if self._heap else None
 

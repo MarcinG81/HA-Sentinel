@@ -59,11 +59,31 @@ export interface Subject {
 export type Severity = "critical" | "high" | "warning" | "info";
 export type IncidentStatus = "open" | "acknowledged" | "suppressed" | "resolved";
 
+export interface Hypothesis {
+  candidate_uid: string;
+  candidate_label: string;
+  candidate_type: string;
+  score: number;
+  label: "strong" | "possible" | "none";
+  features: { T: number; D: number; P: number; E: number; K: number };
+  evidence_source: string;
+  affected: number;
+  observable: number;
+  counter_evidence: { kind: string; count?: number; sample?: string[] }[];
+  reasons: string[];
+  graph_revision: number;
+}
+
 export interface Incident {
   id: string;
   status: IncidentStatus;
   severity: Severity;
   title_key: string;
+  kind: "infrastructure" | "rule";
+  member_count: number;
+  root: { uid: string; label: string; type: string | null } | null;
+  merged_into: string | null;
+  top_hypothesis: { candidate_label: string; label: Hypothesis["label"]; score: number } | null;
   rule_id: string;
   subject: Subject;
   opened_at: string;
@@ -100,8 +120,9 @@ export interface FindingDetail {
 
 export interface IncidentDetail extends Incident {
   findings: FindingDetail[];
-  hypotheses: unknown[];
-  counter_evidence: unknown[];
+  hypotheses: Hypothesis[];
+  counter_evidence: { kind: string; count?: number; sample?: string[]; candidate_uid: string }[];
+  confirmed_cause: { candidate_uid: string; verdict: "confirmed" | "rejected"; by: string; at: string } | null;
 }
 
 export interface IncidentPage {

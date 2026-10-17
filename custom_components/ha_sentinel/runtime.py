@@ -22,6 +22,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_point_in_utc_time, async_track_time_interval
 
+from .adapters.evidence import EvidenceCollector
 from .adapters.ha_states import SOURCE_ID, availability_of, battery_payload, is_observed
 from .config_services import ConfigServices
 from .const import (
@@ -42,6 +43,7 @@ from .core.coverage import CoverageTracker
 from .core.ingestion import IngestionQueues
 from .core.inventory import Inventory, InventoryChange
 from .core.models import (
+    Availability,
     CapabilityStatus,
     CoverageSegment,
     CoverageStatus,
@@ -52,6 +54,8 @@ from .core.models import (
     new_uuid,
 )
 from .core.ratelimit import RateLimiter
+from .modules.correlation.correlator import ActiveFinding, ExistingIncident, correlate
+from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
 from .modules.doctor.health import HealthResult, HealthUnit, compute_health
 from .repositories import repository as repo
@@ -104,6 +108,8 @@ class SentinelRuntime:
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None
         self.module_states: dict[str, ModuleState] = {}
+        self._correlate_lock = asyncio.Lock()
+        self._evidence = EvidenceCollector()
         self.rate_limiter = RateLimiter(self.clock)
         self.subscriptions: dict[str, int] = {}  # user_id -> open subscriptions
         self.active_incidents = 0
@@ -345,10 +351,48 @@ class SentinelRuntime:
             def persist(conn):
                 for f in findings:
                     repo.upsert_finding(conn, f, now)
-                return repo.count_active_incidents(conn)
 
-            self.active_incidents = await self.db.run(persist)
+            await self.db.run(persist)
+            await self.async_correlate()
         self.bump()
+
+    async def async_correlate(self) -> None:
+        """Derive incidents and hypotheses from all active findings (spec 9)."""
+        if not self.storage_writable:
+            return
+        async with self._correlate_lock:
+            now = self.clock.now_us()
+            findings = [
+                ActiveFinding(f.id, f.rule_id, f.subject_uid, f.severity, f.first_seen_us)
+                for f in self.doctor.active_findings()
+            ]
+            existing = [
+                ExistingIncident(r["id"], r["fingerprint"], frozenset(r["finding_ids"]),
+                                 r["opened_at_us"], r["root_uid"])
+                for r in await self.db.run(repo.load_active_incidents)
+            ]
+            graph = self.config.graph if self.config is not None else DependencyGraph()
+            evidence = self._evidence.collect(self.hass, now)
+            availability = {
+                uid: (a is Availability.AVAILABLE)
+                for uid, a in self.doctor.availability_snapshot().items()
+            }
+            plans = await self.hass.async_add_executor_job(
+                lambda: correlate(
+                    instance_id=self.entry.data.get("instance_id", self.entry.entry_id),
+                    findings=findings, existing=existing, graph=graph, evidence=evidence,
+                    entity_available=availability.get,
+                    coverage_complete=self.coverage.is_complete, now_us=now,
+                )
+            )
+
+            def apply(conn):
+                changed = repo.sync_incidents(conn, plans, now)
+                return changed, repo.count_active_incidents(conn)
+
+            changed, self.active_incidents = await self.db.run(apply)
+        if changed:
+            self.bump()
 
     # --- Doctor timers -------------------------------------------------------------
 
@@ -371,7 +415,9 @@ class SentinelRuntime:
         findings = self.doctor.tick(self.clock.now_us())
         self._reschedule_doctor()
         if findings:
-            self.entry.async_create_background_task(
+            # Tracked (not background): findings and incidents must be committed before
+            # the entry unloads, and HA waits for tracked tasks.
+            self.entry.async_create_task(
                 self.hass, self._commit_findings(findings), f"{DOMAIN}_findings"
             )
 
@@ -379,15 +425,15 @@ class SentinelRuntime:
 
     @callback
     def _publish_tick(self, _now: datetime) -> None:
-        self.entry.async_create_background_task(
-            self.hass, self._periodic(), f"{DOMAIN}_periodic"
-        )
+        self.entry.async_create_task(self.hass, self._periodic(), f"{DOMAIN}_periodic")
 
     async def _periodic(self) -> None:
         if self.storage_writable:
             now = self.clock.now_us()
             if await self.db.run(lambda c: repo.expire_suppressions(c, now)):
                 self.revision += 1
+            # Re-rank periodically: evidence and dependent states change without findings.
+            await self.async_correlate()
         async_dispatcher_send(self.hass, SIGNAL_UPDATED)
 
     def bump(self) -> None:
@@ -399,6 +445,12 @@ class SentinelRuntime:
     def storage_writable(self) -> bool:
         cap = self.capabilities.get("storage.write")
         return cap is not None and cap.status is CapabilityStatus.SUPPORTED
+
+    def node_label(self, uid: str) -> dict[str, Any]:
+        node = self.config.graph.nodes.get(uid) if self.config is not None else None
+        if node is None:
+            return {"uid": uid, "label": uid, "type": None}
+        return {"uid": uid, "label": node.label, "type": node.type}
 
     def subject_label(self, uid: str | None) -> dict[str, Any]:
         """Display data for a subject; rendered as text only by the panel."""

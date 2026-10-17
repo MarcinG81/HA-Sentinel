@@ -81,17 +81,13 @@ def test_t03_transport_duplicates_are_stored_once(db):
     assert db.conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 1
 
 
-def test_finding_activation_opens_one_incident_and_outbox_entry(db):
+def test_finding_persisted_without_incident_until_correlated(db):
     f = Finding(id=new_uuid(), rule_id="DOC001", rule_version=1, subject_uid="e1",
                 status=FindingStatus.ACTIVE, severity=Severity.HIGH,
                 first_seen_us=1, last_seen_us=1)
     repo.upsert_finding(db.conn, f, 2)
     repo.upsert_finding(db.conn, f, 3)  # repeated write is idempotent
-    assert repo.count_active_incidents(db.conn) == 1
-    assert db.conn.execute("SELECT COUNT(*) FROM notification_outbox").fetchone()[0] == 1
-    f.status = FindingStatus.RESOLVED
-    f.resolved_at_us = 4
-    repo.upsert_finding(db.conn, f, 4)
+    assert db.conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 1
     assert repo.count_active_incidents(db.conn) == 0
 
 

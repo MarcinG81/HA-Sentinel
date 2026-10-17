@@ -11,6 +11,7 @@ from custom_components.ha_sentinel.core.clock import FakeClock
 from custom_components.ha_sentinel.core.errors import ErrorCode, SentinelError
 from custom_components.ha_sentinel.core.models import Finding, FindingStatus, Severity, new_uuid
 from custom_components.ha_sentinel.core.ratelimit import RateLimiter, RequestClass
+from custom_components.ha_sentinel.modules.correlation.correlator import IncidentPlan
 from custom_components.ha_sentinel.repositories import repository as repo
 from custom_components.ha_sentinel.repositories.db import (
     DatabaseWorker,
@@ -30,13 +31,24 @@ def db(tmp_path):
     w.close_sync()
 
 
+def _plan(finding_ids, fp, subject="e1", at=1, hypotheses=None, merge=None):
+    return IncidentPlan(fingerprint=fp, finding_ids=finding_ids, subject_uid=subject,
+                        root_uid=None, severity=Severity.HIGH, opened_at_us=at,
+                        title_key="rule.DOC001", hypotheses=hypotheses or [],
+                        merge_incident_ids=merge or [])
+
+
 def _open_incident(conn, subject="e1", at=1) -> str:
+    """Open an incident the way the runtime does: finding first, then correlator plan."""
     f = Finding(id=new_uuid(), rule_id="DOC001", rule_version=1, subject_uid=subject,
                 status=FindingStatus.ACTIVE, severity=Severity.HIGH,
                 first_seen_us=at, last_seen_us=at)
     repo.upsert_finding(conn, f, at)
-    return conn.execute("SELECT id FROM incidents WHERE fingerprint=?",
-                        (f.fingerprint,)).fetchone()[0]
+    fp = f"fp-{subject}"
+    others = [p for p in repo.load_active_incidents(conn)]
+    plans = [_plan(o["finding_ids"], o["fingerprint"]) for o in others]
+    repo.sync_incidents(conn, plans + [_plan([f.id], fp, subject, at)], at)
+    return conn.execute("SELECT id FROM incidents WHERE fingerprint=?", (fp,)).fetchone()[0]
 
 
 def _ack(conn, iid, rev, key=None, now=10):
@@ -123,12 +135,44 @@ def test_suppress_in_the_past_rejected(db):
 def test_recovery_resolves_suppressed_incident(db):
     iid = _open_incident(db.conn)
     _suppress(db.conn, iid, 1, until=100 * S)
-    f = Finding(id=new_uuid(), rule_id="DOC001", rule_version=1, subject_uid="e1",
-                status=FindingStatus.RESOLVED, severity=Severity.HIGH, first_seen_us=1,
-                last_seen_us=50, resolved_at_us=50)
-    repo.upsert_finding(db.conn, f, 50)
+    assert repo.sync_incidents(db.conn, [], 50)  # no active finding left -> recovered
     assert db.conn.execute("SELECT status FROM incidents WHERE id=?", (iid,)).fetchone()[0] \
         == "resolved"
+
+
+def test_sync_revision_and_merge(db):
+    a = _open_incident(db.conn, "e1")
+    b = _open_incident(db.conn, "e2")
+    fa = repo.load_active_incidents(db.conn)
+    ids = sorted(fid for i in fa for fid in i["finding_ids"])
+    plans = [_plan(ids, "group", hypotheses=[{"candidate_uid": "c", "score": 0.9}],
+                   merge=[a, b])]
+    assert repo.sync_incidents(db.conn, plans, 10)
+    rows = {r["id"]: r for r in db.conn.execute("SELECT id, status, summary_json FROM incidents")}
+    gid = next(i for i, r in rows.items() if i not in (a, b))
+    assert rows[a]["status"] == "resolved" and f'"merged_into":"{gid}"' in rows[a]["summary_json"]
+    assert not repo.sync_incidents(db.conn, plans, 11)  # identical plan: no new revision
+    rev = db.conn.execute("SELECT revision FROM incidents WHERE id=?", (gid,)).fetchone()[0]
+    plans[0].hypotheses = []
+    assert repo.sync_incidents(db.conn, plans, 12)
+    assert db.conn.execute("SELECT revision FROM incidents WHERE id=?",
+                           (gid,)).fetchone()[0] == rev + 1
+
+
+def test_confirm_cause_survives_resync(db):
+    iid = _open_incident(db.conn)
+    fp = db.conn.execute("SELECT fingerprint FROM incidents WHERE id=?", (iid,)).fetchone()[0]
+    fids = repo.load_active_incidents(db.conn)[0]["finding_ids"]
+    repo.sync_incidents(db.conn, [_plan(fids, fp, hypotheses=[{"candidate_uid": "c"}])], 5)
+    rev = db.conn.execute("SELECT revision FROM incidents").fetchone()[0]
+    repo.run_idempotent(db.conn, request_key=new_uuid(), request_hash="h", actor_id="u",
+                        kind="incident.cause", now_us=6,
+                        op=lambda c: repo.confirm_cause(c, iid, rev, "c", "confirmed", "u",
+                                                        "r", 6))
+    repo.sync_incidents(db.conn, [_plan(fids, fp, hypotheses=[{"candidate_uid": "c",
+                                                                "score": 1}])], 7)
+    summary = db.conn.execute("SELECT summary_json FROM incidents").fetchone()[0]
+    assert '"verdict":"confirmed"' in summary
 
 
 def test_keyset_pagination_is_stable(db):

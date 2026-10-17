@@ -17,7 +17,7 @@
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
-| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | — |
+| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19 zrobione |
 | E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
 
 ## Krytyczna ścieżka MVP
@@ -70,3 +70,12 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Głębokie linki panelu: podścieżki HA (`/ha-sentinel/history`, `/autopilot`, `/map` …), bo router HA usuwa fragment `#`.
 - Hash treści importu liczony w przeglądarce czystym SHA-256 w TS, gdy `crypto.subtle` jest niedostępne (HA po HTTP w LAN).
 - Migracje: v2 (ACK/suppress), v3 (metadane snapshotów); na żywym HA przetestowana migracja v2→v3 z kopią `sentinel.v2.bak.db`.
+
+## E4 / B19 — korelacja i RCA
+
+- Incydenty wyprowadza korelator z wszystkich aktywnych findings (po każdym commicie findings i co 30 s); `upsert_finding` zapisuje już tylko findings.
+- Grupowanie: DOC001/DOC002 z początkiem w oknie 120 s i wspólnym przodkiem typu device / integration_entry / network_host / service_endpoint (relacje provided_by, managed_by, depends_on, uses_endpoint; confidence ≥ 0,5; maks. 3 krawędzie). Korzeń grupy = najbliższy wspólny przodek (suma skoków, potem uid).
+- Incydenty grupowe zachowują członków do pełnego powrotu; pojedyncze są ponownie grupowane i scalane (`resolved` + `merged_into`), nigdy „rozwiązywane ciszą”.
+- Cechy: T liczone względem startu kandydata (dowód) lub najwcześniejszego skutku; E=1 dla wpisu integracji w stanie błędu/ponawiania lub czujnika łączności „off”, 0,5 dla niedostępnej encji statusu; K tylko przy ciągłym pokryciu. Hipoteza `change_related` (zmiana konfiguracji na ścieżce w 30 min) — jeszcze nie, bo MVP nie zapisuje do HA.
+- Ocena admina (`incidents/confirm_cause`) zapisywana osobno i zachowywana przy przeliczeniach rankingu.
+- Zadania commitu findings i okresowej korelacji są śledzone (nie background), więc HA czeka na nie przy wyładowaniu.

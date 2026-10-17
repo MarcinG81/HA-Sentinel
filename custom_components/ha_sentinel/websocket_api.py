@@ -62,6 +62,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_incidents_get,
         ws_incidents_ack,
         ws_incidents_suppress,
+        ws_incidents_confirm_cause,
         ws_subscribe,
         ws_import_create,
         ws_resources_list,
@@ -191,7 +192,15 @@ def _incident_api(runtime, row: dict) -> dict:
         "status": row["status"],
         "severity": row["severity"],
         "title_key": summary.get("title_key"),
+        "kind": "infrastructure" if summary.get("root_uid") else "rule",
         "rule_id": summary.get("title_key", "").removeprefix("rule."),
+        "member_count": summary.get("member_count", len(summary.get("finding_ids", []))),
+        "root": (runtime.node_label(summary["root_uid"]) if summary.get("root_uid") else None),
+        "merged_into": summary.get("merged_into"),
+        "top_hypothesis": (
+            {k: h[k] for k in ("candidate_label", "label", "score")}
+            if (h := next(iter(summary.get("hypotheses") or []), None)) else None
+        ),
         "subject": runtime.subject_label(summary.get("subject_uid")),
         "opened_at": us_to_rfc3339(row["opened_at_us"]),
         "updated_at": us_to_rfc3339(row["updated_at_us"]),
@@ -268,9 +277,18 @@ async def ws_incidents_get(hass, connection, msg, runtime) -> None:
         }
         for f in row["findings"]
     ]
-    # MVP has no RCA yet (B19): hypotheses and counter-evidence are explicitly empty.
-    out["hypotheses"] = []
-    out["counter_evidence"] = []
+    summary = row["summary"]
+    # Ranking is a heuristic, not a probability; confirmation is a separate admin field.
+    out["hypotheses"] = summary.get("hypotheses", [])
+    out["counter_evidence"] = [
+        {**c, "candidate_uid": h["candidate_uid"]}
+        for h in out["hypotheses"] for c in h.get("counter_evidence", [])
+    ]
+    cause = summary.get("confirmed_cause")
+    out["confirmed_cause"] = (
+        {**{k: v for k, v in cause.items() if k != "at_us"}, "at": us_to_rfc3339(cause["at_us"])}
+        if cause else None
+    )
     connection.send_result(msg["id"], out)
 
 
@@ -350,6 +368,28 @@ async def ws_incidents_suppress(hass, connection, msg, runtime) -> None:
         lambda c, actor, rid, now: repo.suppress_incident(
             c, msg["incident_id"], msg["expected_revision"], until_us, msg["reason"],
             actor, rid, now),
+    )
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("incidents/confirm_cause")
+    | _MUTATION_FIELDS
+    | {
+        vol.Required("candidate_uid"): vol.Any(None, vol.All(str, vol.Length(min=1, max=300))),
+        vol.Required("verdict"): vol.In(["confirmed", "rejected"]),
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_incidents_confirm_cause(hass, connection, msg, runtime) -> None:
+    """Manual admin assessment of a hypothesis; never changes the ranking (spec 9.2)."""
+    result = await _mutate(
+        runtime, connection, msg, "incident.cause",
+        lambda c, actor, rid, now: repo.confirm_cause(
+            c, msg["incident_id"], msg["expected_revision"], msg["candidate_uid"],
+            msg["verdict"], actor, rid, now),
     )
     connection.send_result(msg["id"], result)
 

@@ -37,6 +37,9 @@ WS_MUTATIONS_AND_LOOKUPS = [
     {"type": f"{DOMAIN}/import/create", "content_utf8": "a: 1",
      "content_hash": "sha256:" + "0" * 64, "resource_kind": "automation", "label": "x",
      "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/incidents/confirm_cause", "incident_id": ANY_UUID,
+     "expected_revision": 1, "request_key": ANY_UUID, "candidate_uid": None,
+     "verdict": "rejected"},
     {"type": f"{DOMAIN}/resources/list"},
     {"type": f"{DOMAIN}/snapshots/list", "resource_id": ANY_UUID},
     {"type": f"{DOMAIN}/snapshots/get", "snapshot_id": ANY_UUID},
@@ -81,9 +84,22 @@ async def test_t01_start_and_five_reloads_leave_one_listener(hass, entry):
 
 
 async def test_diagnostic_entities_created(hass, entry):
+    from homeassistant.helpers import entity_registry as er
+
     await _setup(hass, entry)
-    assert hass.states.get("binary_sensor.ha_sentinel_sentinel_degraded").state == "off"
-    assert hass.states.get("sensor.ha_sentinel_active_incidents").state == "0"
+    reg = er.async_get(hass)
+
+    def state_of(platform: str, key: str):
+        entity_id = reg.async_get_entity_id(platform, DOMAIN, f"{entry.entry_id}_{key}")
+        assert entity_id, f"{key} not registered; have {sorted(reg.entities)}"
+        state = hass.states.get(entity_id)
+        assert state is not None, f"{entity_id} has no state; have {hass.states.async_entity_ids()}"
+        return state
+
+    assert state_of("binary_sensor", "sentinel_degraded").state == "off"
+    assert state_of("sensor", "active_incidents").state == "0"
+    for key in ("health_score", "coverage_percent", "dropped_observations_total", "queue_depth"):
+        state_of("sensor", key)
 
 
 @pytest.mark.parametrize("command", WS_COMMANDS + WS_MUTATIONS_AND_LOOKUPS,
@@ -125,11 +141,7 @@ async def test_doc001_end_to_end_opens_incident(hass, entry, hass_ws_client, fre
     async_fire_time_changed(hass)
     hass.states.async_set("sensor.hall_temp", STATE_UNAVAILABLE)
     await hass.async_block_till_done()
-
-    for _ in range(4):  # writer flush, then the 30 s DOC001 timer
-        freezer.tick(timedelta(seconds=10))
-        async_fire_time_changed(hass)
-        await hass.async_block_till_done()
+    await _wait_for_incidents(hass, freezer, 1)  # writer flush, then the 30 s DOC001 timer
 
     client = await hass_ws_client(hass)
     await client.send_json_auto_id({"type": f"{DOMAIN}/incidents/list"})
@@ -178,10 +190,25 @@ async def _open_incident_via_doc001(hass, freezer):
     async_fire_time_changed(hass)
     hass.states.async_set("sensor.hall_temp", STATE_UNAVAILABLE)
     await hass.async_block_till_done()
-    for _ in range(4):
+    await _wait_for_incidents(hass, freezer, 1)
+
+
+async def _wait_for_incidents(hass, freezer, expected: int, max_ticks: int = 12) -> None:
+    """Advance time until the writer, Doctor timer and correlator have committed.
+
+    The pipeline is eventually consistent (writer batch, deadline, DB worker); tests wait
+    for the observable result instead of assuming a fixed number of ticks.
+    """
+    from custom_components.ha_sentinel.repositories import repository as repo
+
+    runtime = hass.data[DOMAIN]["runtime"]
+    for _ in range(max_ticks):
         freezer.tick(timedelta(seconds=10))
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
+        if await runtime.db.run(repo.count_active_incidents) >= expected:
+            return
+    raise AssertionError(f"expected {expected} active incident(s)")
 
 
 async def test_ack_suppress_get_and_subscription(hass, entry, hass_ws_client, freezer):
