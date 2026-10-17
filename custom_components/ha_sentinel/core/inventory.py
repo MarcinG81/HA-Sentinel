@@ -48,6 +48,9 @@ class InventoryChange:
     device: DeviceRecord | None = None
     closed_alias: AliasRecord | None = None
     new_alias: AliasRecord | None = None
+    # A new registry entity reusing the entity_id of a tombstone: the same physical
+    # thing *maybe*; never merged automatically, only suggested (spec 6.1).
+    same_as: str | None = None
 
 
 class Inventory:
@@ -154,7 +157,8 @@ class Inventory:
             if registry_id:
                 self._by_registry[registry_id] = ent.uid
             self._by_alias[entity_id] = ent.uid
-            changes.append(InventoryChange(entity=ent, new_alias=alias))
+            same_as = self._tombstone_with_alias(entity_id) if registry_id else None
+            changes.append(InventoryChange(entity=ent, new_alias=alias, same_as=same_as))
             return ent.uid, changes
 
         ent = self._by_uid[uid]
@@ -184,6 +188,16 @@ class Inventory:
         elif dirty:
             changes.append(InventoryChange(entity=ent))
         return uid, changes
+
+    def _tombstone_with_alias(self, entity_id: str) -> str | None:
+        """Most recently deleted registry entity that last had this entity_id."""
+        best: EntityRecord | None = None
+        for ent in self._by_uid.values():
+            if (ent.deleted_at_us is not None and ent.registry_id is not None
+                    and ent.current_alias == entity_id
+                    and (best is None or ent.deleted_at_us > (best.deleted_at_us or 0))):
+                best = ent
+        return best.uid if best else None
 
     def remove(self, uid: str, now_us: int) -> InventoryChange | None:
         """Tombstone: alias and edge history is kept (AC MAP 02)."""

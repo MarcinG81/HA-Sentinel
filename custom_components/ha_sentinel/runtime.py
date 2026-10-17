@@ -62,6 +62,7 @@ from .const import (
     OPT_MODULES_DEPENDENCY_MAPPER,
     OPT_MODULES_DOCTOR,
     OPT_MODULES_NETWORK,
+    REGISTRY_RECONCILE_S,
     SENSOR_THROTTLE_S,
     UNLOAD_FLUSH_TIMEOUT_S,
     WRITER_BATCH_SIZE,
@@ -88,6 +89,7 @@ from .core.models import (
 from .core.ratelimit import RateLimiter
 from .core.supervisor import Supervisor
 from .data_services import DataServices
+from .identity_services import IdentityService
 from .maintenance_services import MaintenanceService
 from .modules.correlation.changes import WINDOW_S as CHANGE_WINDOW_S
 from .modules.correlation.changes import ConfigChange, change_hypotheses
@@ -159,6 +161,8 @@ class SentinelRuntime:
         self.rules = RuleService(self)
         self.numeric = NumericSourceService(self)
         self.unit_weights: dict[str, int] = {}  # health unit uid -> admin weight 2..5
+        self.identity = IdentityService(self)
+        self.registry_synced_us: int | None = None
         # entity_id -> explicit numeric sources (manual battery mapping, signal scales).
         self._numeric_aliases: dict[str, list[NumericSource]] = {}
         self.doctor = DoctorEngine(
@@ -272,6 +276,12 @@ class SentinelRuntime:
             async_track_time_interval(self.hass, self._publish_tick,
                                       timedelta(seconds=SENSOR_THROTTLE_S))
         )
+        # Fallback for missed registry events; freshness is shown in diagnostics (5.1).
+        self._unsubs.append(
+            async_track_time_interval(self.hass, self._reconcile_registries,
+                                      timedelta(seconds=REGISTRY_RECONCILE_S))
+        )
+        self.registry_synced_us = self.clock.now_us()
         await self._start_config_services()
         self.data = DataServices(self)
         await self.data.async_start()
@@ -493,6 +503,31 @@ class SentinelRuntime:
             if (bat := battery_payload(state)) is not None:
                 out.append(bat)
         return out
+
+    @callback
+    def _reconcile_registries(self, _now: datetime | None = None) -> int:
+        """Bring the inventory in line with the entity registry; returns changes."""
+        reg = er.async_get(self.hass)
+        present = {}
+        for entry in reg.entities.values():
+            if self._observed(entry.entity_id):
+                present[entry.id] = entry.entity_id
+        now = self.clock.now_us()
+        before = len(self._pending_inventory)
+        for ent in self.inventory.active_entities():
+            if ent.registry_id is not None and ent.registry_id not in present:
+                if change := self.inventory.remove(ent.uid, now):  # missed "remove" event
+                    self._pending_inventory.append(change)
+                    self._availability.pop(ent.current_alias, None)
+        for entity_id in present.values():
+            self._resolve_uid(entity_id)  # renames and device moves
+        self.registry_synced_us = now
+        changed = len(self._pending_inventory) - before
+        if changed:
+            self.refresh_heartbeat_tracking()
+            self.refresh_numeric_tracking()
+            self._wake.set()
+        return changed
 
     @callback
     def refresh_numeric_tracking(self) -> None:
@@ -892,6 +927,8 @@ class SentinelRuntime:
             "started_at_us": self.started_us,
             "state": str(self.state),
             "reason_code": self.reason_code,
+            "registry_synced_at": us_to_rfc3339(self.registry_synced_us)
+            if self.registry_synced_us else None,
             "queues": {
                 "depth": q.depth,
                 "capacity": q.capacity,

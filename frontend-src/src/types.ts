@@ -164,6 +164,7 @@ export interface Diagnostics {
   started_at: string;
   state: string;
   reason_code: string | null;
+  registry_synced_at?: string | null;
   queues: Record<string, number | boolean>;
   storage: { db_bytes: number; observations: number; schema_version: number; mode: string };
   coverage_gaps: { source_id: string; scope: string; from: string; to: string | null; status: string; reason: string }[];

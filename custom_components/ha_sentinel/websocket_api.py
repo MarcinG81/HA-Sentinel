@@ -109,6 +109,8 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_health_components,
         ws_health_weight,
         ws_graph_revisions,
+        ws_identity_list,
+        ws_identity_decide,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -1310,6 +1312,31 @@ async def ws_health_weight(hass, connection, msg, runtime) -> None:
         raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
     await runtime.set_unit_weight(msg["unit_uid"], msg["weight"], connection.user.id)
     connection.send_result(msg["id"], runtime.health_components())
+
+
+@websocket_api.websocket_command(_schema("identity/list"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_identity_list(hass, connection, msg, runtime) -> None:
+    """Possible continuity of deleted and re-added entities, waiting for the admin (6.1)."""
+    connection.send_result(msg["id"], {"items": await runtime.identity.pending()})
+
+
+@websocket_api.websocket_command(
+    _schema("identity/decide")
+    | {vol.Required("suggestion_id"): _uuid, vol.Required("confirm"): bool,
+       vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_identity_decide(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    moved = await runtime.identity.decide(msg["suggestion_id"], msg["confirm"],
+                                          connection.user.id)
+    connection.send_result(msg["id"], {"moved": moved})
 
 
 @websocket_api.websocket_command(

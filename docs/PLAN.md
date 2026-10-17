@@ -179,7 +179,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | **zrobione** (z G2b) |
 | G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | **zrobione** |
 | G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | **zrobione** |
-| G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | do zrobienia |
+| G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | **zrobione** |
 | G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | do zrobienia |
 | G14 | Budżety klas danych: audyt (limit blokuje mutacje), 50 snapshotów na zasób, agregaty minutowe/godzinowe telemetrii | 7.3 | do zrobienia |
 
@@ -270,3 +270,8 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 
 - `recurrence_of`: nowy incydent o tym samym fingerprincie po rozwiązanym (pomijając zamknięte przez scalenie) pamięta poprzedni; panel pokazuje baner z linkiem.
 - `change_related`: snapshot zmieniający istniejący zasób automatyzacji (pierwszy import się nie liczy) w ciągu 30 min przed początkiem incydentu (+5 s tolerancji zegara), tylko gdy jego automatyzacja `reads` / `controls` / `calls` dotknięty obiekt albo jego przodka. Lista osobno od rankingu, bez wpływu na score (9.2), maks. 3, z opisem powiązania.
+
+### G12 — decyzje
+
+- Uzgadnianie co 15 min: wpisy rejestru encji kontra inwentarz — przegapione usunięcia dostają tombstone, zmiany nazw i urządzeń są dociągane. Czas ostatniego uzgodnienia w diagnostyce.
+- `suggested_same_as` (migracja v13, `identity_suggestions`): nowa encja z rejestru z `entity_id` tombstone'u innej encji z rejestru → sugestia, nigdy automatyczne scalenie. Zatwierdzenie przenosi nadpisania reguł, źródła liczbowe i wagę jednostki encji (konflikty: nowa tożsamość zachowuje swoje); historia zostaje przy starej tożsamości. Odrzucenie zostawia obie osobno. Encje bez wpisu w rejestrze nie dostają sugestii (zmieniają tożsamość przy każdym starcie).

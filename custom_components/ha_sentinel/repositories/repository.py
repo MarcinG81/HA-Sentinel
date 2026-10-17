@@ -113,6 +113,11 @@ def apply_inventory_changes(conn: sqlite3.Connection, changes: Iterable[Inventor
                     (e.uid, e.registry_id, e.current_alias, e.domain, e.first_seen_us,
                      e.last_seen_us, e.deleted_at_us),
                 )
+                if ch.same_as is not None:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO identity_suggestions(id, kind, old_uid, new_uid, "
+                        "reason, created_us) VALUES (?, 'entity', ?, ?, 'same_entity_id', ?)",
+                        (new_uuid(), ch.same_as, e.uid, e.first_seen_us))
                 if e.device_uid is not None:
                     conn.execute("DELETE FROM entity_devices WHERE entity_uid=?", (e.uid,))
                     conn.execute(

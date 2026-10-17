@@ -25,6 +25,7 @@ import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses 
 import { renderDataCard, renderExportCard } from "./views_data.ts";
 import { renderMaintenanceCard } from "./views_maintenance.ts";
 import { renderHealthComponents } from "./views_health.ts";
+import { renderIdentityCard } from "./views_identity.ts";
 import { renderNumericCard } from "./views_numeric.ts";
 import { renderRulesCard } from "./views_rules.ts";
 import { renderNetwork } from "./views_network.ts";
@@ -534,6 +535,7 @@ class SentinelPanel extends HTMLElement {
         more ? h("div", { class: "actions" }, more) : null,
       ),
       await renderMaintenanceCard(this.ctx),
+      await renderIdentityCard(this.ctx),
       await renderRulesCard(this.ctx),
       await renderNumericCard(this.ctx),
     );
@@ -797,7 +799,8 @@ class SentinelPanel extends HTMLElement {
       h(
         "div",
         { class: "grid" },
-        h("section", { class: "card" }, h("h2", {}, t("diag.queues")), kv(Object.entries(d.queues))),
+        h("section", { class: "card" }, h("h2", {}, t("diag.queues")), kv(Object.entries(d.queues)),
+          d.registry_synced_at ? h("p", { class: "muted" }, `${t("diag.registry_synced")}: ${this.date(d.registry_synced_at, true)}`) : null),
         h(
           "section",
           { class: "card" },

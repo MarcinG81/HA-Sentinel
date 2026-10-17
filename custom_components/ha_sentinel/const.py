@@ -4,9 +4,11 @@ from __future__ import annotations
 
 DOMAIN = "ha_sentinel"
 API_VERSION = 1
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 # Shortest DOC005 period is 10 s and its deadline 3 periods: one stored heartbeat per 5 s.
 HEARTBEAT_MIN_INTERVAL_S = 5
+# Periodic registry reconciliation, fallback for missed registry events (spec 5.1).
+REGISTRY_RECONCILE_S = 15 * 60
 DATA_DIR = "ha_sentinel"
 DB_FILENAME = "sentinel.db"
 
