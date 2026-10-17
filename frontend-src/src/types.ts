@@ -12,6 +12,7 @@ export interface HassConnection {
 
 export interface Hass {
   callWS<T>(message: Record<string, unknown>): Promise<T>;
+  fetchWithAuth(path: string, init?: RequestInit): Promise<Response>;
   connection: HassConnection;
   language: string;
   locale?: { language?: string };
@@ -261,4 +262,23 @@ export interface WsError {
   code?: string;
   message?: string;
   details?: { reason?: string; line?: number | null; paths?: string[] };
+}
+
+// --- B23: export, jobs, data management -------------------------------------------------
+
+export interface JobInfo {
+  job_id: string;
+  kind: string;
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+  progress: number | null;
+  cancel_requested: boolean;
+  error_code: string | null;
+  updated_at: string;
+  result: { export_id?: string; bytes?: number; scopes?: string[]; redacted?: boolean; expires_at?: string } | null;
+}
+
+export interface DataStatus {
+  storage: { db_bytes: number; observations: number; schema_version: number };
+  retention: Record<string, number>;
+  last_purge: (Record<string, number | string> & { at: string }) | null;
 }

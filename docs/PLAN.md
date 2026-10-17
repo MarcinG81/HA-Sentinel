@@ -17,7 +17,7 @@
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
-| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19 zrobione |
+| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19, B23 zrobione; retencja/purge (REQ10) zrobione |
 | E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
 
 ## Krytyczna ścieżka MVP
@@ -79,3 +79,12 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Cechy: T liczone względem startu kandydata (dowód) lub najwcześniejszego skutku; E=1 dla wpisu integracji w stanie błędu/ponawiania lub czujnika łączności „off”, 0,5 dla niedostępnej encji statusu; K tylko przy ciągłym pokryciu. Hipoteza `change_related` (zmiana konfiguracji na ścieżce w 30 min) — jeszcze nie, bo MVP nie zapisuje do HA.
 - Ocena admina (`incidents/confirm_cause`) zapisywana osobno i zachowywana przy przeliczeniach rankingu.
 - Zadania commitu findings i okresowej korelacji są śledzone (nie background), więc HA czeka na nie przy wyładowaniu.
+
+## E4 / B23 — eksport, redakcja, usuwanie, retencja
+
+- `export/create` → job (maks. 2 ciężkie naraz), ZIP z `manifest.json` (wersje, zakresy, hashe plików), limit 20 MiB, TTL 24 h; pobieranie `GET /api/ha_sentinel/exports/{id}` przez sesję HA (`hass.fetchWithAuth`), admin + właściciel, `Cache-Control: no-store`, bez ścieżek serwera w odpowiedziach.
+- Redakcja: pseudonimy HMAC-SHA256 z losową solą per eksport (pseudonimizacja, nie anonimizacja). YAML tylko w eksporcie niezredagowanym; jawne sekrety i tak nie istnieją, bo import je odrzuca albo redaguje (T19).
+- Usuwanie: zakresy observations / incidents / config_history przez SQL w workerze; „all” = wyładowanie wpisu, usunięcie `sentinel*.db*`, `blobs/`, `exports/`, ponowny start. Zadanie „all” jest globalne (nie zadaniem wpisu), bo HA czeka na zadania wpisu przy wyładowaniu.
+- Purge co godzinę partiami po 5000: obserwacje (retencja), zamknięte incydenty i findings (aktywne nigdy), snapshoty > 30 dni poza najnowszym, joby > 24 h, audyt > 180 dni, osierocone bloby i stare eksporty, checkpoint WAL bez VACUUM. Budżet rozmiaru (soft/hard) i DOC010 — jeszcze nie.
+- Po restarcie joby `queued`/`running` przechodzą w `interrupted` (bez ślepego ponawiania).
+- Testy: heartbeat WS serwera HA zamyka bezczynnego klienta testowego przy masowym odpalaniu timerów — klienta WS tworzyć po przesunięciu czasu.

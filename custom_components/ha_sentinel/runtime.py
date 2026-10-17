@@ -54,6 +54,7 @@ from .core.models import (
     new_uuid,
 )
 from .core.ratelimit import RateLimiter
+from .data_services import DataServices
 from .modules.correlation.correlator import ActiveFinding, ExistingIncident, correlate
 from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
@@ -107,6 +108,8 @@ class SentinelRuntime:
         )
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None
+        self.data: DataServices | None = None
+        self.version = "unknown"
         self.module_states: dict[str, ModuleState] = {}
         self._correlate_lock = asyncio.Lock()
         self._evidence = EvidenceCollector()
@@ -165,6 +168,8 @@ class SentinelRuntime:
                                       timedelta(seconds=SENSOR_THROTTLE_S))
         )
         await self._start_config_services()
+        self.data = DataServices(self)
+        await self.data.async_start()
         if self.state is ModuleState.STARTING:
             self.state = ModuleState.READY
 
@@ -184,6 +189,8 @@ class SentinelRuntime:
             except TimeoutError:
                 _LOGGER.warning("Writer did not flush within %ss", UNLOAD_FLUSH_TIMEOUT_S)
                 self._writer_task.cancel()
+        if self.data is not None:
+            await self.data.async_stop()
         if self.config is not None:
             await self.config.async_stop()
         await self.db.async_close()

@@ -20,6 +20,7 @@ import type {
   WsError,
 } from "./types.ts";
 import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
+import { renderDataCard, renderExportCard } from "./views_data.ts";
 import { renderAutopilot, renderHistory, renderMap } from "./views_e3.ts";
 
 type View = "overview" | "doctor" | "history" | "autopilot" | "map" | "network" | "diagnostics" | "settings";
@@ -30,7 +31,7 @@ const MENU_ICON = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 const REFRESH_DEBOUNCE_MS = 400;
 
 /** Views that only show live state; editing views are never rebuilt under the user. */
-const LIVE_VIEWS: View[] = ["overview", "doctor", "diagnostics"];
+const LIVE_VIEWS: View[] = ["overview", "doctor"];
 
 /** HA passes sub-paths of the panel URL as route.path, e.g. "/history". */
 function viewFromPath(path: string | undefined): View {
@@ -60,6 +61,7 @@ class SentinelPanel extends HTMLElement {
   private e3 = initialE3State();
   private ctx: Ctx = {
     ws: (m) => this.ws(m),
+    fetch: (path) => this._hass!.fetchWithAuth(path),
     t: (k) => this.t(k),
     date: (iso, off) => this.date(iso, off),
     rerender: () => void this.render(),
@@ -258,7 +260,7 @@ class SentinelPanel extends HTMLElement {
       case "diagnostics":
         return this.renderDiagnostics();
       case "settings":
-        return Promise.resolve(this.renderSettings());
+        return this.renderSettingsView();
       case "history":
         return renderHistory(this.ctx);
       case "autopilot":
@@ -718,16 +720,18 @@ class SentinelPanel extends HTMLElement {
           ]),
         ),
       ),
+      renderExportCard(this.ctx),
       h(
         "section",
         { class: "card" },
         h("h2", {}, t("diag.gaps")),
+        d.coverage_gaps.length > 5 ? h("p", { class: "muted" }, t("diag.gaps_more").replace("{n}", String(d.coverage_gaps.length - 5))) : null,
         d.coverage_gaps.length === 0
           ? h("p", { class: "muted" }, t("diag.no_gaps"))
           : h(
               "ul",
               { class: "list" },
-              d.coverage_gaps.map((g) =>
+              d.coverage_gaps.slice(0, 5).map((g) =>
                 h(
                   "li",
                   {},
@@ -742,6 +746,10 @@ class SentinelPanel extends HTMLElement {
             ),
       ),
     );
+  }
+
+  private async renderSettingsView(): Promise<HTMLElement> {
+    return h("div", { class: "stack" }, this.renderSettings(), await renderDataCard(this.ctx));
   }
 
   private renderSettings(): HTMLElement {

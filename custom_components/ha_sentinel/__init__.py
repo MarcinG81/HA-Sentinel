@@ -10,6 +10,7 @@ from homeassistant.loader import async_get_integration
 from .adapters.panel import async_register_panel, async_remove_panel
 from .const import DOMAIN
 from .runtime import SentinelRuntime
+from .views import async_register_views
 from .websocket_api import async_register_api
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
@@ -18,15 +19,17 @@ type SentinelConfigEntry = ConfigEntry[SentinelRuntime]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SentinelConfigEntry) -> bool:
+    integration = await async_get_integration(hass, DOMAIN)
     runtime = SentinelRuntime(hass, entry)
+    runtime.version = str(integration.version)
     await runtime.async_start()
     try:
         entry.runtime_data = runtime
         hass.data.setdefault(DOMAIN, {})["runtime"] = runtime
         # Registered once per domain; handlers answer not_ready while no entry is loaded.
         async_register_api(hass)
-        integration = await async_get_integration(hass, DOMAIN)
-        await async_register_panel(hass, str(integration.version))
+        await async_register_panel(hass, runtime.version)
+        async_register_views(hass)
     except Exception:
         # Never leave listeners, timers or an open DB behind (spec 2.2).
         hass.data.get(DOMAIN, {}).pop("runtime", None)

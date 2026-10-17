@@ -148,6 +148,9 @@ table.diff th, table.edges th { width: auto; }
 table.features { width: auto; margin-top: 8px; }
 table.features th, table.features td { width: auto; text-align: center; padding: 4px 10px; font-variant-numeric: tabular-nums; }
 .small-text { font-size: 12px; }
+fieldset.plain { border: 0; padding: 0; margin: 0; }
+fieldset.plain legend { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 4px; }
+button.danger { background: var(--error-color, #db4437); border-color: var(--error-color, #db4437); }
 .hyp-strong { color: var(--error-color, #db4437); }
 .hyp-possible { color: var(--warning-color, #ffa600); }
 .hyp-none { color: var(--secondary-text-color); }

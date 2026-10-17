@@ -17,6 +17,10 @@ export interface E3State {
   mapQuery: string;
   mapHits: GraphNode[] | null;
   mapGrouping: boolean;
+  exportScopes: string[];
+  exportRedacted: boolean;
+  exportJob: string | null;
+  deleteScope: string;
 }
 
 export function initialE3State(): E3State {
@@ -34,11 +38,17 @@ export function initialE3State(): E3State {
     mapQuery: "",
     mapHits: null,
     mapGrouping: false,
+    exportScopes: ["diagnostics", "incidents"],
+    exportRedacted: true,
+    exportJob: null,
+    deleteScope: "observations",
   };
 }
 
 export interface Ctx {
   ws<T>(message: Record<string, unknown>): Promise<T>;
+  /** Authenticated GET through the HA session; never puts a token in the URL. */
+  fetch(path: string): Promise<Response>;
   t: Translate;
   date(iso: string | null, withOffset?: boolean): string;
   rerender(): void;

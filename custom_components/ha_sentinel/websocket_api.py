@@ -26,7 +26,7 @@ from .core.clock import datetime_to_us, us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
 from .core.models import CapabilityStatus, ModuleState, is_uuid4, new_uuid
 from .core.ratelimit import RequestClass
-from .repositories import history
+from .repositories import history, jobs
 from .repositories import repository as repo
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,6 +72,11 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_autopilot_analyze,
         ws_graph_query,
         ws_graph_search,
+        ws_export_create,
+        ws_jobs_get,
+        ws_jobs_cancel,
+        ws_data_status,
+        ws_data_delete,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -592,3 +597,114 @@ async def ws_graph_search(hass, connection, msg, runtime) -> None:
         "edges": graph.edge_count,
         "unresolved": graph.unresolved_count,
     })
+
+
+# --- Export, jobs, data management (B23) -----------------------------------------------
+
+
+def _data(runtime):
+    if runtime.data is None:
+        raise SentinelError(ErrorCode.NOT_READY, "data services are not ready")
+    return runtime.data
+
+
+@websocket_api.websocket_command(
+    _schema("export/create")
+    | {
+        vol.Required("scopes"): vol.All([vol.In(["diagnostics", "incidents",
+                                                 "config_history"])], vol.Length(min=1),
+                                        lambda v: sorted(set(v))),
+        vol.Optional("redacted", default=True): bool,
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_export_create(hass, connection, msg, runtime) -> None:
+    """Start an export job; the archive is downloaded via the authenticated HTTP view."""
+    result = await _data(runtime).start_export(
+        scopes=msg["scopes"], redacted=msg["redacted"], request_key=msg["request_key"],
+        request_hash=_request_hash(msg), actor_id=connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+def _job_api(job: dict) -> dict:
+    result = job["result"]
+    if result is not None:
+        result = {k: v for k, v in result.items() if k != "file"}  # no server paths
+        if "expires_us" in result:
+            result["expires_at"] = us_to_rfc3339(result.pop("expires_us"))
+    return {
+        "job_id": job["id"],
+        "kind": job["kind"],
+        "state": job["state"],
+        "progress": job["checkpoint"].get("progress"),
+        "cancel_requested": job["checkpoint"].get("cancel_requested", False),
+        "error_code": job["checkpoint"].get("error_code"),
+        "updated_at": us_to_rfc3339(job["updated_at_us"]),
+        "result": result,
+    }
+
+
+@websocket_api.websocket_command(_schema("jobs/get") | {vol.Required("job_id"): _uuid})
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_jobs_get(hass, connection, msg, runtime) -> None:
+    job = await runtime.db.run(lambda c: jobs.get_job(c, msg["job_id"]))
+    if job is None or job["kind"].startswith(("incident.", "import.")):
+        raise SentinelError(ErrorCode.NOT_FOUND, "job not found")
+    connection.send_result(msg["id"], _job_api(job))
+
+
+@websocket_api.websocket_command(
+    _schema("jobs/cancel") | {vol.Required("job_id"): _uuid, vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_jobs_cancel(hass, connection, msg, runtime) -> None:
+    now = runtime.clock.now_us()
+    state = await runtime.db.run(lambda c: jobs.request_cancel(c, msg["job_id"], now))
+    connection.send_result(msg["id"], {"cancel_requested": True, "state": state})
+
+
+@websocket_api.websocket_command(_schema("data/status"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_data_status(hass, connection, msg, runtime) -> None:
+    from .const import DEFAULT_OPTIONS
+
+    data = _data(runtime)
+    stats = await runtime.db.run(repo.storage_stats)
+    opts = {**DEFAULT_OPTIONS, **runtime.entry.options}
+    last = data.last_purge
+    connection.send_result(msg["id"], {
+        "storage": stats,
+        "retention": {k: v for k, v in opts.items() if k.startswith(("retention_", "storage_"))},
+        "last_purge": ({**{k: v for k, v in last.items() if k != "at_us"},
+                        "at": us_to_rfc3339(last["at_us"])} if last else None),
+    })
+
+
+@websocket_api.websocket_command(
+    _schema("data/delete")
+    | {
+        vol.Required("scope"): vol.In(["observations", "incidents", "config_history", "all"]),
+        vol.Required("confirm"): str,
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_data_delete(hass, connection, msg, runtime) -> None:
+    """Delete Sentinel's own data only; Recorder and HA backups are never touched."""
+    if msg["confirm"] != msg["scope"]:
+        raise SentinelError(ErrorCode.INVALID_REQUEST, "confirmation does not match scope")
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    result = await _data(runtime).delete_scope(msg["scope"], connection.user.id)
+    connection.send_result(msg["id"], result)
