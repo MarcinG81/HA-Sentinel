@@ -37,7 +37,7 @@ jobs:
           python-version: "3.14"
       - run: pip install pytest-homeassistant-custom-component ruff home-assistant-frontend pytest-cov
       - run: ruff check .
-      - run: pytest -q --cov=custom_components/ha_sentinel --cov-branch --cov-report=term
+      - run: pytest -q --cov=custom_components/ha_sentinel --cov-branch --cov-report=term --cov-fail-under=90
       - name: Dependency audit of the frontend toolchain
         working-directory: frontend-src
         run: npm ci && npm audit --audit-level=high

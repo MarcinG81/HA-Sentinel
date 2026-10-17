@@ -149,3 +149,7 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Pułapka pomiarowa: `freezer` (freezegun) zamraża też `perf_counter` — test wydajności nie używa `freezer`, a writer jest opróżniany jawnie (`async_flush`).
 - Nadzór modułów (4.3): writer ponawia po 5/15/60 s z jitterem, po 5 awariach w 10 min wstrzymanie do decyzji admina (`modules/resume`).
 - Łańcuch dostaw (16.3): workflow wydania (zip dla HACS, SHA-256, SBOM CycloneDX z `npm sbom`, kontrola zgodności wersji z tagiem i bundla ze źródłami), gitleaks i `npm audit` w CI, pokrycie testami w CI.
+
+## Kryteria wydania — pokrycie (spec 23.3)
+
+Pokrycie gałęzi (2026-10-17, 306 testów): całość 91%; polityka `websocket_api` 94%; dziennik `apply` 92%, `managed` 97%, `change_services` 90%; parser `yaml_ast` 97%, `autopilot/model` 95%; moduły domenowe ≥ 80% (`replay` 93%). CI wymaga ≥ 90% całości. Dodane testy ścieżek bezpieczeństwa: cofnięcie uprawnień admina przed skutkiem ubocznym, unieważnienie planów po zmianie polityki, `internal_error` bez śladu stosu, `not_ready` dla każdej komendy bez runtime, kursor związany z użytkownikiem i filtrem, recovery przy starcie po awarii po zapisie (AC HK 03).

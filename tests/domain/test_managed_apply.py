@@ -292,3 +292,29 @@ def test_no_reload_service_means_manual_reload(cfg):
                          reloader=FakeReload(available=False)))
     assert out.state is PlanState.MANUAL_RELOAD_REQUIRED
     assert f.read_bytes() == TARGET
+
+
+def test_more_path_rejections(cfg):
+    managed = cfg / "ha_sentinel_managed"
+    (managed / "dir.yaml").mkdir()
+    with pytest.raises(ManagedPathError) as err:
+        resolve_managed_path(str(cfg), "ha_sentinel_managed", "ha_sentinel_managed/dir.yaml")
+    assert err.value.reason == "not_regular_file"
+    big = managed / "big.yaml"
+    big.write_bytes(b"#" * (1024 * 1024 + 1))
+    os.chmod(big, 0o644)
+    with pytest.raises(ManagedPathError) as err:
+        resolve_managed_path(str(cfg), "ha_sentinel_managed", "ha_sentinel_managed/big.yaml")
+    assert err.value.reason == "too_large"
+    for rel, reason in (("", "not_relative"), ("ha_sentinel_managed/a\x00.yaml", "not_relative"),
+                        ("C:/x.yaml", "traversal")):
+        with pytest.raises(ManagedPathError) as err:
+            resolve_managed_path(str(cfg), "ha_sentinel_managed", rel)
+        assert err.value.reason == reason
+
+
+def test_cleanup_removes_crash_leftovers(cfg):
+    f = cfg / "ha_sentinel_managed" / "automations.yaml"
+    (f.parent / ".automations.yaml.sentinel-abc").write_bytes(b"partial")
+    assert cleanup_temp_files(f) == 1
+    assert current_hash(cfg / "nope.yaml") is None

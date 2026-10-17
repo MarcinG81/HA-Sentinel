@@ -305,3 +305,24 @@ async def test_mutation_rate_limit(hass, entry, hass_ws_client):
         codes.append((await client.receive_json())["error"]["code"])
     assert codes[:10] == ["not_found"] * 10
     assert codes[10] == "rate_limited"
+
+
+@pytest.mark.parametrize("command", WS_COMMANDS + WS_MUTATIONS_AND_LOOKUPS,
+                         ids=lambda c: c["type"])
+async def test_every_command_answers_not_ready_without_runtime(hass, entry, hass_ws_client,
+                                                               command):
+    await _setup(hass, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(command)
+    msg = await client.receive_json()
+    assert msg["success"] is False
+    assert msg["error"]["code"] in ("not_ready", "invalid_format")
+
+
+async def test_unknown_api_version_rejected(hass, entry, hass_ws_client):
+    await _setup(hass, entry)
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": f"{DOMAIN}/overview", "api_version": 2})
+    assert (await client.receive_json())["error"]["code"] == "invalid_format"

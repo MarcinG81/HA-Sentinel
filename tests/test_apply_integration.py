@@ -171,3 +171,56 @@ async def test_export_only_snapshots_cannot_be_restored_via_api(hass, env):
     res = await _call(client, type=f"{DOMAIN}/changes/preview", resource_id=imp["resource_id"],
                       snapshot_id=imp["snapshot_id"])
     assert res["error"]["code"] == "unsupported_capability"  # AC HK 04
+
+
+async def test_no_change_broken_file_and_duplicate_registration(hass, env):
+    client, target, reg = env
+    rid = reg["resource_id"]
+    same = await _call(client, type=f"{DOMAIN}/changes/preview", resource_id=rid,
+                       snapshot_id=reg["snapshot_id"])
+    assert same["error"]["details"]["reason"] == "no_change"
+    dup = await _call(client, type=f"{DOMAIN}/managed/register",
+                      relative_path="ha_sentinel_managed/automations.yaml", label="again",
+                      exclusive_owner_confirmed=True, request_key=str(uuid.uuid4()))
+    assert dup["error"]["code"] == "conflict"
+    target.write_text("- alias: [broken\n")
+    synced = await _call(client, type=f"{DOMAIN}/managed/sync", resource_id=rid,
+                         request_key=str(uuid.uuid4()))
+    assert synced["success"]  # a broken file is still history, marked not restorable
+    snaps = await _snapshots(client, rid)
+    assert snaps[0]["restorable"] is False and snaps[0]["validation"]["parser"] == "invalid"
+    # The broken current file can still be replaced by a good snapshot.
+    preview = await _call(client, type=f"{DOMAIN}/changes/preview", resource_id=rid,
+                          snapshot_id=reg["snapshot_id"])
+    assert preview["success"], preview
+
+
+async def test_ac_hk_03_crash_after_write_is_recovered_on_start(hass, env, hass_ws_client):
+    client, target, reg = env
+    rid = reg["resource_id"]
+    target.write_text(V2)
+    await _call(client, type=f"{DOMAIN}/managed/sync", resource_id=rid,
+                request_key=str(uuid.uuid4()))
+    preview = (await _call(client, type=f"{DOMAIN}/changes/preview", resource_id=rid,
+                           snapshot_id=reg["snapshot_id"]))["result"]
+    runtime = hass.data[DOMAIN]["runtime"]
+    # Simulate a crash right after the atomic replace: journal says "prepared", the file
+    # already holds the target, and the plan is stuck in "applying".
+    target.write_text(V1)
+
+    def stuck(conn):
+        conn.execute("UPDATE change_plans SET state='applying' WHERE id=?",
+                     (preview["plan_id"],))
+        conn.execute("INSERT INTO operations(id, plan_id, phase, before_hash, updated_us) "
+                     "VALUES (?,?,?,?,0)", (str(uuid.uuid4()), preview["plan_id"], "prepared",
+                                           preview["base_hash"]))
+    await runtime.db.run(stuck)
+    entry = runtime.entry
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+    plan = (await _call(client, type=f"{DOMAIN}/changes/get",
+                        plan_id=preview["plan_id"]))["result"]
+    assert plan["state"] == "manual_reload_required"  # never applied a second time
+    assert target.read_text() == V1
+
