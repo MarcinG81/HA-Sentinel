@@ -1,0 +1,243 @@
+// Minimal shapes of the HA frontend objects the panel relies on. We deliberately do not
+// import private HA frontend modules (spec 14.1).
+
+export interface HassConnection {
+  subscribeMessage<T>(
+    callback: (msg: T) => void,
+    message: Record<string, unknown>,
+  ): Promise<() => Promise<void>>;
+  addEventListener(event: string, cb: () => void): void;
+  removeEventListener(event: string, cb: () => void): void;
+}
+
+export interface Hass {
+  callWS<T>(message: Record<string, unknown>): Promise<T>;
+  connection: HassConnection;
+  language: string;
+  locale?: { language?: string };
+  config: { time_zone: string };
+  user?: { is_admin: boolean };
+  themes?: { darkMode?: boolean };
+}
+
+export interface Capability {
+  capability_id: string;
+  status: "supported" | "unavailable" | "unsupported" | "disabled";
+  reason_code: string | null;
+  contract_version: number;
+}
+
+export interface Overview {
+  api_version: number;
+  revision: number;
+  state: string;
+  reason_code: string | null;
+  health: {
+    score: number | null;
+    score_partial: number | null;
+    coverage_pct: number | null;
+    coverage_complete_at: string | null;
+    units: number;
+  };
+  counters: {
+    active_incidents: number;
+    active_findings: number;
+    entities: number;
+    queue_depth: number;
+    dropped_observations_total: number;
+  };
+  modules: Record<string, string>;
+}
+
+export interface Subject {
+  uid: string | null;
+  entity_id: string | null;
+  name: string | null;
+  deleted: boolean;
+}
+
+export type Severity = "critical" | "high" | "warning" | "info";
+export type IncidentStatus = "open" | "acknowledged" | "suppressed" | "resolved";
+
+export interface Incident {
+  id: string;
+  status: IncidentStatus;
+  severity: Severity;
+  title_key: string;
+  rule_id: string;
+  subject: Subject;
+  opened_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  revision: number;
+  suppressed_until: string | null;
+  suppress_reason: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface Evidence {
+  kind: string | null;
+  received_at: string | null;
+  occurred_at: string | null;
+  payload: Record<string, unknown> | null;
+  evidence_expired: boolean;
+}
+
+export interface FindingDetail {
+  id: string;
+  rule_id: string;
+  rule_version: number;
+  status: string;
+  severity: Severity;
+  confidence: number;
+  coverage: "complete" | "partial" | "missing";
+  subject: Subject;
+  first_seen: string;
+  last_seen: string;
+  resolved_at: string | null;
+  evidence: Evidence[];
+}
+
+export interface IncidentDetail extends Incident {
+  findings: FindingDetail[];
+  hypotheses: unknown[];
+  counter_evidence: unknown[];
+}
+
+export interface IncidentPage {
+  items: Incident[];
+  next_cursor: string | null;
+  revision: number;
+}
+
+export interface Diagnostics {
+  boot_id: string;
+  started_at: string;
+  state: string;
+  reason_code: string | null;
+  queues: Record<string, number | boolean>;
+  storage: { db_bytes: number; observations: number; schema_version: number; mode: string };
+  coverage_gaps: { source_id: string; scope: string; from: string; to: string | null; status: string; reason: string }[];
+  doctor: { active_findings: number; flapping_partial: number; next_deadline: string | null };
+}
+
+export interface ChangeEvent {
+  stream_epoch: string;
+  from_revision: number;
+  to_revision: number;
+  resync_required: boolean;
+}
+
+// --- E3: configuration history, autopilot, graph ---------------------------------------
+
+export type ResourceKind = "automation" | "script" | "blueprint" | "sentinel_options";
+
+export interface Resource {
+  id: string;
+  provider: string;
+  kind: ResourceKind;
+  label: string;
+  write_policy: string;
+  snapshots: number;
+  updated_at: string | null;
+}
+
+export interface SnapshotMeta {
+  id: string;
+  resource_id: string;
+  canonical_hash: string;
+  raw_hash: string | null;
+  created_at: string;
+  restorable: boolean;
+  raw_available: boolean;
+  redacted_paths: string[];
+  validation: { completeness?: number; runnables?: number; unsupported?: number };
+}
+
+export interface ExportText {
+  snapshot_id: string;
+  label: string;
+  kind: ResourceKind;
+  source: "raw" | "rendered";
+  redacted_paths: string[];
+  restorable: boolean;
+  content: string;
+}
+
+export interface DiffResult {
+  semantic: { op: "add" | "remove" | "replace"; path: string; old?: unknown; new?: unknown }[];
+  semantic_changed: boolean;
+  textual_changed: boolean | null;
+  textual: string[] | null;
+}
+
+export interface SpanInfo {
+  line: number;
+  column: number;
+  end_line: number;
+  end_column: number;
+}
+
+export interface LintFinding {
+  rule_id: string;
+  level: "error" | "warning" | "info" | "risk" | "unsupported";
+  message_key: string;
+  pointer: string;
+  span: SpanInfo | null;
+  runnable: string | null;
+  params: Record<string, unknown>;
+  heuristic: boolean;
+}
+
+export interface LintReport {
+  snapshot_id: string;
+  ruleset_version: number;
+  completeness: number;
+  runnables: { key: string; label: string; kind: string; mode: string; triggers: number; calls: number; templates: number; unsupported: number }[];
+  findings: LintFinding[];
+  templates: number;
+  truncated: boolean;
+  inventory_complete: boolean;
+  spans_available: boolean;
+}
+
+export interface GraphNode {
+  uid: string;
+  type: string;
+  label: string;
+  external_ref: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  relation: string;
+  provenance: string;
+  confidence: number;
+  evidence_ref: string | null;
+}
+
+export interface GraphQueryResult {
+  found: boolean;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  truncated: boolean;
+  graph_revision: number;
+  unresolved_count: number;
+  built_at: string | null;
+}
+
+export interface GraphSearch {
+  items: GraphNode[];
+  graph_revision: number;
+  nodes: number;
+  edges: number;
+  unresolved: number;
+}
+
+export interface WsError {
+  code?: string;
+  message?: string;
+  details?: { reason?: string; line?: number | null; paths?: string[] };
+}

@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA Sentinel",
+        "description": "Sentinel lokalnie obserwuje dostępność encji. Dane pozostają w tej instancji Home Assistant, aktywne sondy sieciowe i AI są wyłączone. Domyślna retencja: 7 dni obserwacji."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "HA Sentinel jest już skonfigurowany."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "doctor_unavailable_s": "Próg niedostępności (s)",
+          "doctor_startup_grace_s": "Okres karencji po starcie (s)",
+          "retention_observations_days": "Retencja obserwacji (dni)",
+          "storage_max_total_mib": "Budżet magazynu (MiB)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "health_score": { "name": "Wynik zdrowia" },
+      "coverage_percent": { "name": "Pokrycie" },
+      "active_incidents": { "name": "Aktywne incydenty" },
+      "dropped_observations_total": { "name": "Odrzucone obserwacje" },
+      "queue_depth": { "name": "Głębokość kolejki" }
+    },
+    "binary_sensor": {
+      "sentinel_degraded": { "name": "Sentinel zdegradowany" }
+    }
+  }
+}

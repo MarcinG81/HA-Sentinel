@@ -1,0 +1,15 @@
+{
+  "name": "ha-sentinel-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/main.ts --bundle --format=esm --target=es2021 --minify --legal-comments=none --outfile=../custom_components/ha_sentinel/frontend/ha-sentinel.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

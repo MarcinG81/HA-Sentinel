@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA Sentinel",
+        "description": "Sentinel observes availability of your entities locally. Data stays in this Home Assistant instance, no active network probes and no AI are enabled. Default retention: 7 days of observations."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "HA Sentinel is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "doctor_unavailable_s": "Unavailable threshold (s)",
+          "doctor_startup_grace_s": "Startup grace period (s)",
+          "retention_observations_days": "Observation retention (days)",
+          "storage_max_total_mib": "Storage budget (MiB)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "health_score": { "name": "Health score" },
+      "coverage_percent": { "name": "Coverage" },
+      "active_incidents": { "name": "Active incidents" },
+      "dropped_observations_total": { "name": "Dropped observations" },
+      "queue_depth": { "name": "Queue depth" }
+    },
+    "binary_sensor": {
+      "sentinel_degraded": { "name": "Sentinel degraded" }
+    }
+  }
+}
