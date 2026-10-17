@@ -1,6 +1,9 @@
 {
   "domain": "ha_sentinel",
   "name": "HA Sentinel",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@MarcinG81"
   ],
