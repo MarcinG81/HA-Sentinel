@@ -97,6 +97,9 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_rules_list,
         ws_rules_set,
         ws_rules_delete,
+        ws_numeric_list,
+        ws_numeric_set,
+        ws_numeric_delete,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -1073,6 +1076,60 @@ async def ws_rules_delete(hass, connection, msg, runtime) -> None:
     if not runtime.storage_writable:
         raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
     await runtime.rules.delete(msg["override_id"], connection.user.id)
+    connection.send_result(msg["id"], {"deleted": True})
+
+
+_NUMBER = vol.All(vol.Coerce(float), vol.Range(min=-1_000_000, max=1_000_000))
+
+
+@websocket_api.websocket_command(_schema("numeric/list"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_numeric_list(hass, connection, msg, runtime) -> None:
+    """Explicit numeric sources: manual battery mapping and signal scales (DOC004, DOC008)."""
+    await runtime.numeric.async_load()
+    connection.send_result(msg["id"], {
+        "items": [runtime.numeric.source_api(s, runtime.numeric_sampling)
+                  for s in runtime.numeric.sources],
+        "numeric_sampling": runtime.numeric_sampling,
+    })
+
+
+@websocket_api.websocket_command(
+    _schema("numeric/set")
+    | {
+        vol.Required("subject_uid"): vol.All(str, vol.Length(min=1, max=300)),
+        vol.Required("purpose"): vol.In(["battery", "signal"]),
+        vol.Required("scale_min"): _NUMBER,
+        vol.Required("scale_max"): _NUMBER,
+        vol.Optional("threshold"): vol.Any(None, _NUMBER),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_numeric_set(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    src = await runtime.numeric.set(subject_uid=msg["subject_uid"], purpose=msg["purpose"],
+                                    scale_min=msg["scale_min"], scale_max=msg["scale_max"],
+                                    threshold=msg.get("threshold"), actor=connection.user.id)
+    connection.send_result(msg["id"], runtime.numeric.source_api(src, runtime.numeric_sampling))
+
+
+@websocket_api.websocket_command(
+    _schema("numeric/delete") | {vol.Required("source_id"): _uuid,
+                                 vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_numeric_delete(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    await runtime.numeric.delete(msg["source_id"], connection.user.id)
     connection.send_result(msg["id"], {"deleted": True})
 
 

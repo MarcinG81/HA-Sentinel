@@ -36,6 +36,7 @@ from ...core.models import (
     Severity,
     new_uuid,
 )
+from .numeric import SIGNAL_HYSTERESIS
 from .overrides import RuleOverride, heartbeat_contracts
 
 S = 1_000_000  # microseconds per second
@@ -66,6 +67,7 @@ RULE_SEVERITY = {
     "DOC003": Severity.WARNING,
     "DOC004": Severity.WARNING,
     "DOC005": Severity.WARNING,
+    "DOC008": Severity.INFO,  # advisory: a weak link is a risk, not a failure
     "DOC009": Severity.INFO,  # information, never an automatic upgrade
 }
 MAINTENANCE_RECHECK_S = 60
@@ -87,6 +89,8 @@ class _EntityState:
     flap_token: int = 0
     battery_low_since_us: int | None = None
     battery_low_obs_id: str | None = None
+    signal_low_since_us: int | None = None
+    signal_low_obs_id: str | None = None
     heartbeat_token: int = 0
 
 
@@ -140,7 +144,7 @@ class DoctorEngine:
         for fp, f in list(self._findings.items()):
             if f.status is not FindingStatus.ACTIVE:
                 continue
-            if f.rule_id in ("DOC001", "DOC002", "DOC003", "DOC004", "DOC009") \
+            if f.rule_id in ("DOC001", "DOC002", "DOC003", "DOC004", "DOC008", "DOC009") \
                     and f.subject_uid not in self._entities:
                 reason = "subject_identity_ended"
             elif f.rule_version < RULE_VERSIONS.get(f.rule_id, RULE_VERSION) or (
@@ -351,6 +355,8 @@ class DoctorEngine:
 
     def _on_numeric(self, obs: Observation) -> list[Finding]:
         p = obs.payload
+        if p.get("purpose") == "signal":
+            return self._on_signal(obs)
         if p.get("device_class") != "battery" or p.get("unit") != "%":
             return []  # never detect batteries by entity name
         value = p.get("value")
@@ -378,6 +384,41 @@ class DoctorEngine:
             return []
         st.battery_low_since_us = None
         return []
+
+    # --- Signal: DOC008 ------------------------------------------------------------
+
+    def _on_signal(self, obs: Observation) -> list[Finding]:
+        """Weak signal only against the source's own scale and threshold (spec 8.1)."""
+        p = obs.payload
+        value, threshold, scale = p.get("value"), p.get("threshold"), p.get("scale")
+        if not all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                   for x in (value, threshold)) or not isinstance(scale, list):
+            return []
+        uid = obs.subject_uid
+        assert uid is not None
+        st = self._entities.setdefault(uid, _EntityState())
+        now = obs.occurred_at_us or obs.received_at_us
+        if self._has_active(uid, ("DOC008",)):
+            if value >= threshold + SIGNAL_HYSTERESIS * (scale[1] - scale[0]):
+                st.signal_low_since_us = None
+                return self._resolve("DOC008", uid, now)
+            return []
+        if value < threshold:
+            if st.signal_low_since_us is None:
+                st.signal_low_since_us, st.signal_low_obs_id = now, obs.id
+                return []
+            if now - st.signal_low_since_us >= self.params.battery_confirm_s * S:
+                return self._raise("DOC008", uid, st.signal_low_since_us, obs.id,
+                                   CoverageStatus.COMPLETE,
+                                   details={"value": value, "threshold": threshold},
+                                   extra_evidence=st.signal_low_obs_id)
+            return []
+        st.signal_low_since_us = None
+        return []
+
+    def close(self, rule: str, uid: str, now_us: int, reason: str) -> list[Finding]:
+        """Administrative close, e.g. the numeric source behind the finding was removed."""
+        return self._resolve(rule, uid, now_us, reason=reason)
 
     # --- Updates: DOC009 ----------------------------------------------------------------
 

@@ -55,6 +55,7 @@ from .const import (
     OPT_DOCTOR_STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S,
     OPT_INGESTION_ALLOWED_DOMAINS,
+    OPT_INGESTION_NUMERIC_SAMPLING,
     OPT_MODULES_AUTOPILOT,
     OPT_MODULES_CONFIG_HISTORY,
     OPT_MODULES_DEPENDENCY_MAPPER,
@@ -90,8 +91,10 @@ from .modules.correlation.correlator import ActiveFinding, ExistingIncident, cor
 from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
 from .modules.doctor.health import HealthResult, HealthUnit, compute_health
+from .modules.doctor.numeric import NumericSource
 from .network_services import NetworkService
 from .notification_services import NotificationService
+from .numeric_services import NumericSourceService
 from .repairs import async_update_storage_issue
 from .repositories import repository as repo
 from .repositories.db import DatabaseWorker, DbMode, UnsupportedSchemaError
@@ -143,12 +146,16 @@ class SentinelRuntime:
         }
         # Empty = all domains; privacy exclusions win either way.
         self.allowed_domains = frozenset(options[OPT_INGESTION_ALLOWED_DOMAINS])
+        self.numeric_sampling = bool(options[OPT_INGESTION_NUMERIC_SAMPLING])
         self.db = DatabaseWorker(Path(hass.config.path(DATA_DIR)) / DB_FILENAME)
         self.queues = IngestionQueues(self.clock, source_id=SOURCE_ID)
         self.inventory = Inventory(self.boot_id)
         self.coverage = CoverageTracker(monitoring_since_us=self.started_us)
         self.maintenance = MaintenanceService(self)
         self.rules = RuleService(self)
+        self.numeric = NumericSourceService(self)
+        # entity_id -> explicit numeric sources (manual battery mapping, signal scales).
+        self._numeric_aliases: dict[str, list[NumericSource]] = {}
         self.doctor = DoctorEngine(
             boot_started_us=self.started_us,
             params=self.doctor_params,
@@ -183,6 +190,9 @@ class SentinelRuntime:
         self._doctor_deadline: int | None = None
         self._writer_task: asyncio.Task | None = None
         self._wake = asyncio.Event()
+        # One batch at a time: a flush must not return while the writer still holds a
+        # drained batch that Doctor has not seen yet.
+        self._flush_lock = asyncio.Lock()
         self._writer_resume = asyncio.Event()
         self._supervisor = Supervisor()
         self._stopping = False
@@ -214,6 +224,8 @@ class SentinelRuntime:
         else:
             closed_by_module = []
         await self.rules.async_load()
+        await self.numeric.async_load()
+        self.refresh_numeric_tracking()  # before the baseline, so it includes mapped samples
         closed_by_overrides = self.doctor.set_overrides(self.rules.overrides,
                                                         self.clock.now_us())
         last_us = await self.db.run(repo.last_observation_us)
@@ -401,8 +413,8 @@ class SentinelRuntime:
             self._availability[state.entity_id] = avail
             baseline.append(self._make_obs(ObservationKind.STATE_SNAPSHOT, uid,
                                            {"availability": str(avail)}, None))
-            if (bat := battery_payload(state)) is not None:
-                baseline.append(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, bat,
+            for sample in self._numeric_samples(state):
+                baseline.append(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, sample,
                                                _dt_us(state.last_updated)))
             if (upd := update_payload(state)) is not None:
                 baseline.append(self._make_obs(ObservationKind.UPDATE_STATE, uid, upd,
@@ -429,14 +441,14 @@ class SentinelRuntime:
             self._heartbeat(entity_id, new_state)
         avail = availability_of(new_state)
         prev = self._availability.get(entity_id)
-        bat = battery_payload(new_state)
+        samples = self._numeric_samples(new_state)
         upd = update_payload(new_state)
         old_upd = update_payload(event.data["old_state"])
         if upd is not None and upd != old_upd:
             self._offer(self._make_obs(ObservationKind.UPDATE_STATE,
                                        self._resolve_uid(entity_id), upd,
                                        _dt_us(new_state.last_changed)))
-        if avail == prev and bat is None:
+        if avail == prev and not samples:
             return
         uid = self._resolve_uid(entity_id)
         occurred = _dt_us(new_state.last_changed)
@@ -445,9 +457,33 @@ class SentinelRuntime:
             self._offer(self._make_obs(ObservationKind.AVAILABILITY_CHANGED, uid,
                                        {"from": str(prev) if prev else None, "to": str(avail)},
                                        occurred))
-        if bat is not None:
-            self._offer(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, bat,
+        for sample in samples:
+            self._offer(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, sample,
                                        _dt_us(new_state.last_updated)))
+
+    def _numeric_samples(self, state: State) -> list[dict[str, Any]]:
+        """Battery by device_class and unit, or an explicit mapping; never by name."""
+        sources = self._numeric_aliases.get(state.entity_id)
+        if not sources:
+            bat = battery_payload(state)
+            return [bat] if bat is not None else []
+        if availability_of(state) is not Availability.AVAILABLE:
+            return []
+        out = [p for src in sources if (p := src.payload(state.state)) is not None]
+        if not any(src.purpose == "battery" for src in sources):
+            # A signal mapping does not hide a battery reported by device_class.
+            if (bat := battery_payload(state)) is not None:
+                out.append(bat)
+        return out
+
+    @callback
+    def refresh_numeric_tracking(self) -> None:
+        aliases: dict[str, list[NumericSource]] = {}
+        for src in self.numeric.active(self.numeric_sampling):
+            ent = self.inventory.get(src.subject_uid)
+            if ent is not None and ent.deleted_at_us is None:
+                aliases.setdefault(ent.current_alias, []).append(src)
+        self._numeric_aliases = aliases
 
     @callback
     def refresh_heartbeat_tracking(self) -> None:
@@ -499,6 +535,7 @@ class SentinelRuntime:
         if event.data["action"] != "remove":
             if event.data["action"] == "update" and "old_entity_id" in event.data:
                 self.refresh_heartbeat_tracking()  # renamed: follow the new alias
+                self.refresh_numeric_tracking()
             return  # renames are resolved through the stable registry id
         uid = self.inventory.uid_for_alias(event.data["entity_id"])
         if uid and (change := self.inventory.remove(uid, self.clock.now_us())):
@@ -556,6 +593,10 @@ class SentinelRuntime:
             pass
 
     async def _flush_once(self) -> bool:
+        async with self._flush_lock:
+            return await self._flush_batch()
+
+    async def _flush_batch(self) -> bool:
         drained = self.queues.drain()
         inventory, self._pending_inventory = self._pending_inventory, []
         if not drained.observations and not drained.gaps and not inventory:

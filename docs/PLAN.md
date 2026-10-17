@@ -164,7 +164,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 |---|---|---|---|
 | G1 | Kontrakt heartbeat dla DOC005: deklaracja encji i okresu (API + UI), próg ręczny, T06 | 8.1, 8.4 | **zrobione** |
 | G2a | Komplet opcji 27.1: działające przełączniki modułów, `ingestion.allowed_domains`, `retention.incidents_days`, sekcje formularza | 27.1 | **zrobione** |
-| G2b | Źródła liczbowe: `ingestion.numeric_sampling` z wyborem encji i celu, ręczne mapowanie baterii (wspólna podstawa dla DOC008) | 5.1, 27.1 | do zrobienia |
+| G2b | Źródła liczbowe: `ingestion.numeric_sampling` z wyborem encji i celu, ręczne mapowanie baterii (wspólna podstawa dla DOC008) | 5.1, 27.1 | **zrobione** |
 | G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | do zrobienia |
 | G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | do zrobienia |
 
@@ -176,7 +176,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | do zrobienia |
 | G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | do zrobienia |
 | G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | do zrobienia |
-| G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | do zrobienia |
+| G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | **zrobione** (z G2b) |
 | G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | do zrobienia |
 | G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | do zrobienia |
 | G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | do zrobienia |
@@ -208,3 +208,11 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Mapa zależności wyłączona: `graph/query` niedostępne, korelacja bez wspólnych przodków (same incydenty pojedyncze); wyszukiwanie obiektów zostaje (służy innym kartom jako wyszukiwarka inwentarza).
 - `ingestion.allowed_domains`: pusta lista = wszystkie domeny poza wykluczeniami prywatności; wykluczenia zawsze mają pierwszeństwo.
 - Formularz opcji w sekcjach (`data_entry_flow.section`), zapis płaski w `entry.options`; błąd CIDR jako błąd formularza (`base`).
+
+### G2b + G9 — decyzje
+
+- Tabela `numeric_sources` (migracja v8): encja, cel `battery` / `signal`, skala, próg (tylko sygnał). Audyt każdej zmiany.
+- Mapowanie baterii jest częścią obserwacji bazowej (nie wymaga opcji): wartość przeliczona ze skali na %, dalej zwykła reguła DOC004. Ręczne mapowanie ma pierwszeństwo przed `device_class`.
+- Sygnał wymaga `ingestion.numeric_sampling`. DOC008 (INFO, kara 0): dwie próbki poniżej progu w odstępie ≥ 30 min; powrót powyżej progu + 5% skali. Wartości porównywane tylko ze skalą danego źródła — RSSI i LQI nigdy ze sobą.
+- Usunięcie źródła zamyka wynikający z niego finding (`source_removed`), nie udaje powrotu do zdrowia.
+- Znaleziony błąd: `async_flush()` mógł wrócić, gdy writer w tle trzymał już pobraną partię, której Doctor jeszcze nie przetworzył. Partie są teraz serializowane blokadą.

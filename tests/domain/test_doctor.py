@@ -307,3 +307,57 @@ def test_override_validation():
         with pytest.raises(SentinelError) as err:
             validate(rule, enabled, params)
         assert err.value.code == "validation_failed" and field in err.value.details
+
+
+def _signal(uid, value, at_us, threshold=-80.0, scale=(-100.0, -30.0)):
+    from custom_components.ha_sentinel.modules.doctor.numeric import NumericSource
+    src = NumericSource(id="s", subject_uid=uid, purpose="signal", scale_min=scale[0],
+                        scale_max=scale[1], threshold=threshold)
+    obs = battery(uid, 0, at_us)
+    obs.payload.clear()
+    obs.payload.update(src.payload(str(value)))
+    return obs
+
+
+def test_doc008_weak_signal_needs_two_samples_and_hysteresis():
+    e = engine()
+    assert e.process(_signal(UID, -85, T0)) == []
+    assert e.process(_signal(UID, -86, T0 + 1799 * S)) == []
+    out = e.process(_signal(UID, -84, T0 + 1800 * S))
+    assert [(f.rule_id, f.severity) for f in out] == [("DOC008", Severity.INFO)]
+    assert e.process(_signal(UID, -78, T0 + 1900 * S)) == []  # above, inside hysteresis
+    out = e.process(_signal(UID, -76, T0 + 2000 * S))  # -80 + 5 % of 70 = -76.5
+    assert [(f.rule_id, f.status) for f in out] == [("DOC008", FindingStatus.RESOLVED)]
+
+
+def test_doc008_short_dip_is_not_a_finding():
+    e = engine()
+    e.process(_signal(UID, -85, T0))
+    e.process(_signal(UID, -70, T0 + 600 * S))
+    assert e.process(_signal(UID, -85, T0 + 1900 * S)) == []
+
+
+def test_numeric_source_payload_and_validation():
+    import pytest
+
+    from custom_components.ha_sentinel.core.errors import SentinelError
+    from custom_components.ha_sentinel.modules.doctor.numeric import NumericSource, validate
+
+    bat = NumericSource(id="b", subject_uid=UID, purpose="battery", scale_min=0, scale_max=255)
+    assert bat.payload("51") == {"value": 20.0, "unit": "%", "device_class": "battery",
+                                 "mapping": "manual"}
+    assert bat.payload("300")["value"] == 100.0
+    assert bat.payload("nan") is None and bat.payload("abc") is None
+    validate("battery", 0, 100, None)
+    validate("signal", 0, 255, 50)
+    for args, param in (
+        (("light", 0, 1, None), "purpose"),
+        (("battery", 5, 5, None), "scale_max"),
+        (("signal", 0, 255, None), "threshold"),
+        (("signal", 0, 255, 300), "threshold"),
+        (("battery", 0, 100, 10), "threshold"),
+        (("battery", float("inf"), 100, None), "scale_min"),
+    ):
+        with pytest.raises(SentinelError) as err:
+            validate(*args)
+        assert err.value.details["param"] == param

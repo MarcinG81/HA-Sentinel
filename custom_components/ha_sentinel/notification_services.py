@@ -40,7 +40,8 @@ _TEXT = {
         "sev": {"critical": "critical", "high": "high", "warning": "warning", "info": "info"},
         "rules": {"DOC001": "Entity unavailable", "DOC002": "Entity state unknown",
                   "DOC003": "Entity is flapping", "DOC004": "Low battery",
-                  "DOC005": "Missing heartbeat", "DOC009": "Update available",
+                  "DOC005": "Missing heartbeat", "DOC008": "Weak signal",
+                  "DOC009": "Update available",
                   "DOC010": "Sentinel storage pressure", "NET001": "Endpoint unreachable"},
     },
     "pl": {
@@ -53,7 +54,8 @@ _TEXT = {
                 "info": "informacja"},
         "rules": {"DOC001": "Encja niedostępna", "DOC002": "Nieznany stan encji",
                   "DOC003": "Encja migocze", "DOC004": "Niski poziom baterii",
-                  "DOC005": "Brak sygnału heartbeat", "DOC009": "Dostępna aktualizacja",
+                  "DOC005": "Brak sygnału heartbeat", "DOC008": "Słaby sygnał",
+                  "DOC009": "Dostępna aktualizacja",
                   "DOC010": "Presja magazynu Sentinel", "NET001": "Endpoint nieosiągalny"},
     },
 }

@@ -26,6 +26,9 @@ export const DATA = {
     findings: [{ id: "f1", rule_id: "DOC001", rule_version: 1, status: "active", severity: "high", confidence: 1, coverage: "complete",
       subject: subject("MQTT 1", "sensor.mqtt_1"), first_seen: "2026-10-17T09:42:03Z", last_seen: "2026-10-17T09:42:03Z", resolved_at: null,
       evidence: [{ kind: "availability.changed", received_at: "2026-10-17T09:42:03Z", occurred_at: "2026-10-17T09:42:03Z", payload: { from: "available", to: "unavailable" }, evidence_expired: false }] }] },
+  "ha_sentinel/numeric/list": { numeric_sampling: false, items: [
+    { id: "n1", subject_uid: "u3", subject_label: "sensor.lock_power", subject_deleted: false, purpose: "battery", scale_min: 0, scale_max: 255, threshold: null, sampling: true },
+    { id: "n2", subject_uid: "u4", subject_label: "sensor.plug_lqi", subject_deleted: false, purpose: "signal", scale_min: 0, scale_max: 255, threshold: 60, sampling: false }] },
   "ha_sentinel/rules/list": { items: [
     { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, enabled: true, params: { period_s: 300 } },
     { id: "r2", rule_id: "DOC001", subject_uid: "u2", subject_label: null, subject_deleted: true, enabled: false, params: {} }],

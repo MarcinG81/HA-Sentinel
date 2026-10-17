@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "ha_sentinel"
 API_VERSION = 1
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 # Shortest DOC005 period is 10 s and its deadline 3 periods: one stored heartbeat per 5 s.
 HEARTBEAT_MIN_INTERVAL_S = 5
 DATA_DIR = "ha_sentinel"
