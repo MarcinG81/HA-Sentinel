@@ -18,7 +18,7 @@
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
 | E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | **zrobione** (B19–B24, retencja/purge REQ10) |
-| E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
+| E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | B26 a11y zrobione; B25 w toku; B27 wymaga prawdziwych instalacji |
 
 ## Krytyczna ścieżka MVP
 
@@ -134,3 +134,10 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - DOC009 (aktualizacja dostępna, kara 0, nigdy auto-upgrade) i DOC010 (presja magazynu: 80% / 95% budżetu, histereza do 75%, próbkowanie co 5 min).
 - Degradacja (21.2): poziom 1 (kolejka > 80% przez 60 s) wstrzymuje replay; poziom 2 (kolejka > 95% lub magazyn ≥ 95%) blokuje skany, eksporty i importy; poziom 3 przy braku trwałości; powrót po 5 min spokoju poniżej 50%.
 - Znaleziony błąd: Sentinel obserwował własne encje (np. `health_score` = unknown w rozgrzewce → DOC002). Encje platformy `ha_sentinel` są wykluczone z obserwacji i grafu.
+
+## E5 / B26 — dostępność
+
+- `frontend-src/a11y/`: harness z atrapami danych dla każdego widoku + `run.mjs` (Chrome przez CDP na wbudowanym WebSocket Node, axe-core 4.10.3, WCAG 2.1 A/AA), 9 widoków × jasny / ciemny / 360 px. Kod wyjścia 1 przy naruszeniu; w CI razem z testem kontrolnym (wstrzyknięte naruszenia muszą zostać wykryte).
+- Pierwszy przebieg „bez naruszeń” był fałszywy (axe nie wchodził do shadow DOM przy kontekście `ShadowRoot`) — wykryte testem kontrolnym, naprawione (audyt całego dokumentu).
+- Realne naruszenia kontrastu naprawione: plakietki z kolorowym tekstem (np. ostrzeżenie 1,96:1) → kolor tylko w kropce/ramce; akcent i tło przycisków liczone `color-mix()` z kolorem tekstu motywu (AA w jasnym i ciemnym). Tokeny harnessu odczytane z żywego HA 2026.10.2 (`--primary-color: #009ac7`).
+- Metryki (20.1): koszt callbacku, lag ingestion, commit writera, czas reguł, korelacji i API (p50/p95/p99/max, rezerwuar 2048), maks. głębokość kolejki; w diagnostyce Sentinel i HA.

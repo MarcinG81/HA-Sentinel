@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -50,6 +51,7 @@ from .core.coverage import CoverageTracker
 from .core.errors import ErrorCode, SentinelError
 from .core.ingestion import IngestionQueues
 from .core.inventory import Inventory, InventoryChange
+from .core.metrics import Metrics
 from .core.models import (
     Availability,
     CapabilityStatus,
@@ -136,6 +138,7 @@ class SentinelRuntime:
         self._pressure_checked_us = 0
         self._evidence = EvidenceCollector()
         self.rate_limiter = RateLimiter(self.clock)
+        self.metrics = Metrics()
         self.subscriptions: dict[str, int] = {}  # user_id -> open subscriptions
         self.active_incidents = 0
         self.revision = 0
@@ -339,6 +342,15 @@ class SentinelRuntime:
 
     @callback
     def _on_state(self, event: Event[EventStateChangedData]) -> None:
+        start = time.perf_counter_ns()
+        try:
+            self._handle_state(event)
+        finally:
+            # Budget: p99 <= 1 ms in the standard profile (spec 21.1).
+            self.metrics.observe("ingestion_callback_us",
+                                 (time.perf_counter_ns() - start) / 1000)
+
+    def _handle_state(self, event: Event[EventStateChangedData]) -> None:
         entity_id = event.data["entity_id"]
         new_state = event.data["new_state"]
         if new_state is None or not self._observed(entity_id):
@@ -375,6 +387,7 @@ class SentinelRuntime:
             self._availability.pop(event.data["entity_id"], None)
 
     def _offer(self, obs: Observation) -> None:
+        self.metrics.queue_depth_max = max(self.metrics.queue_depth_max, self.queues.depth + 1)
         if self.queues.offer(obs) and self.queues.depth >= WRITER_BATCH_SIZE:
             self._wake.set()
 
@@ -392,6 +405,7 @@ class SentinelRuntime:
                     pass
             except Exception:  # keep the writer alive; surface the state instead
                 _LOGGER.exception("Sentinel writer failed")
+                self.metrics.inc("module_failures_total", label="writer")
                 self.state = ModuleState.DEGRADED
                 self.reason_code = "writer_failed"
             if self._stopping:
@@ -418,10 +432,17 @@ class SentinelRuntime:
                 if drained.gaps:
                     repo.insert_coverage(conn, drained.gaps)
 
+            t0 = time.perf_counter()
             await self.db.run(persist)
+            self.metrics.observe("writer_commit_ms", (time.perf_counter() - t0) * 1000)
         changed: list[Finding] = []
+        t0 = time.perf_counter()
+        now_us = self.clock.now_us()
         for obs in drained.observations:
+            self.metrics.observe("ingestion_lag_ms", (now_us - obs.received_at_us) / 1000)
             changed += self.doctor.process(obs)
+        if drained.observations:
+            self.metrics.observe("rules_duration_ms", (time.perf_counter() - t0) * 1000)
         await self._commit_findings(changed)
         if drained.resync_required:
             self._availability.clear()
@@ -447,6 +468,7 @@ class SentinelRuntime:
         if not self.storage_writable:
             return
         async with self._correlate_lock:
+            t_start = time.perf_counter()
             now = self.clock.now_us()
             network_findings = self.network.active_findings() if self.network else []
             network_findings += list(self.data.findings.values()) if self.data else []
@@ -481,6 +503,7 @@ class SentinelRuntime:
                 return changed, repo.count_active_incidents(conn)
 
             changed, self.active_incidents = await self.db.run(apply)
+            self.metrics.observe("correlation_ms", (time.perf_counter() - t_start) * 1000)
         if changed:
             await self.notifications.process()
             self.bump()
@@ -612,6 +635,7 @@ class SentinelRuntime:
             },
             "storage": {**stats, "mode": str(self.db.mode)},
             "coverage_gaps": gaps,
+            "metrics": self.metrics.snapshot(),
             "doctor": {
                 "active_findings": len(self.doctor.active_findings()),
                 "flapping_partial": len(self.doctor.flap_partial),

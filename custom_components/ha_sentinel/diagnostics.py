@@ -29,6 +29,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant,
         "doctor": {k: diag["doctor"][k] for k in ("active_findings", "flapping_partial")},
         "coverage_gaps": [{k: g[k] for k in ("scope", "status", "reason")}
                           for g in diag["coverage_gaps"]],
+        "metrics": diag["metrics"],
         "modules": overview["modules"],
         "counters": overview["counters"],
         "health": {k: overview["health"][k] for k in ("score", "coverage_pct", "units")},

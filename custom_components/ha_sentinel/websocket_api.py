@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
@@ -127,6 +128,8 @@ def _guarded(cls: RequestClass) -> Callable:
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(hass: HomeAssistant, connection, msg: dict) -> None:
+            started = time.perf_counter()
+            runtime = None
             try:
                 runtime = _runtime(hass)
                 if not runtime.rate_limiter.allow(connection.user.id, cls):
@@ -143,6 +146,10 @@ def _guarded(cls: RequestClass) -> Callable:
                 _LOGGER.exception("Sentinel API failure request_id=%s", request_id)
                 connection.send_error(msg["id"], str(ErrorCode.INTERNAL_ERROR),
                                       f"internal error, request_id={request_id}")
+            finally:
+                if runtime is not None:
+                    runtime.metrics.observe("api_latency_ms",
+                                            (time.perf_counter() - started) * 1000)
 
         return wrapper
 

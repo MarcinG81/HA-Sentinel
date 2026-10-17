@@ -2,6 +2,13 @@
 
 export const styles = `
 :host {
+  /* Theme-derived accents that keep WCAG AA contrast in light and dark HA themes: mixing
+     with the theme text colour darkens on light backgrounds and lightens on dark ones. */
+  --s-accent: color-mix(in srgb, var(--primary-color) 70%, var(--primary-text-color));
+  --s-accent-bg: color-mix(in srgb, var(--primary-color) 72%, #000);
+  --s-danger-bg: color-mix(in srgb, var(--error-color, #db4437) 80%, #000);
+  --s-error-text: color-mix(in srgb, var(--error-color, #db4437) 72%, var(--primary-text-color));
+  --s-ok-text: color-mix(in srgb, var(--success-color, #43a047) 60%, var(--primary-text-color));
   display: block;
   min-height: 100vh;
   background: var(--primary-background-color);
@@ -30,7 +37,7 @@ nav[role=tablist] {
 }
 nav[role=tablist]::-webkit-scrollbar { display: none; }
 [role=tab] {
-  flex: none; background: none; border: 0; color: inherit; opacity: .75;
+  flex: none; background: none; border: 0; color: inherit; opacity: .85;
   padding: 12px 14px; font: inherit; font-size: 14px; cursor: pointer;
   border-bottom: 2px solid transparent; white-space: nowrap;
 }
@@ -62,18 +69,19 @@ main { padding: 16px; max-width: 1100px; margin: 0 auto; }
 .muted { color: var(--secondary-text-color); font-size: 14px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .spread { justify-content: space-between; }
+/* Colour sits in the dot and border only; the label keeps the theme text colour (AA). */
 .badge {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 6px; --badge: var(--secondary-text-color);
   font-size: 12px; font-weight: 500; padding: 2px 10px; border-radius: 999px;
-  border: 1px solid currentColor; white-space: nowrap;
+  border: 1px solid var(--badge); white-space: nowrap; color: var(--primary-text-color);
 }
-.badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.sev-critical { color: var(--error-color, #db4437); }
-.sev-high { color: var(--error-color, #db4437); }
-.sev-warning { color: var(--warning-color, #ffa600); }
-.sev-info { color: var(--info-color, #039be5); }
-.ok { color: var(--success-color, #43a047); }
-.status { color: var(--secondary-text-color); }
+.badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--badge); flex: none; }
+.sev-critical, .sev-high { --badge: var(--error-color, #db4437); }
+.sev-warning { --badge: var(--warning-color, #ffa600); }
+.sev-info { --badge: var(--info-color, #039be5); }
+.ok { --badge: var(--success-color, #43a047); }
+.status { --badge: var(--secondary-text-color); }
+span.ok:not(.badge) { color: var(--s-ok-text); }
 ul.list { list-style: none; margin: 0; padding: 0; }
 ul.list > li { border-top: 1px solid var(--divider-color); }
 ul.list > li:first-child { border-top: 0; }
@@ -88,10 +96,10 @@ button.primary, button.secondary, a.secondary {
   font: inherit; font-size: 14px; font-weight: 500; border-radius: 20px; padding: 8px 18px;
   cursor: pointer; border: 1px solid var(--primary-color); text-decoration: none; display: inline-block;
 }
-button.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-button.secondary, a.secondary { background: transparent; color: var(--primary-color); }
+button.primary { background: var(--s-accent-bg); border-color: var(--s-accent-bg); color: #fff; }
+button.secondary, a.secondary { background: transparent; color: var(--s-accent); border-color: var(--s-accent); }
 button[disabled] { opacity: .5; cursor: default; }
-.link { align-self: flex-start; background: none; border: 0; color: var(--primary-color); font: inherit; cursor: pointer; padding: 4px 0; }
+.link { align-self: flex-start; background: none; border: 0; color: var(--s-accent); font: inherit; cursor: pointer; padding: 4px 0; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 6px 4px; border-top: 1px solid var(--divider-color); vertical-align: top; overflow-wrap: anywhere; }
 th { color: var(--secondary-text-color); font-weight: 500; width: 45%; }
@@ -134,14 +142,14 @@ pre.code .ln { color: var(--secondary-text-color); user-select: none; margin-rig
 pre.code .hit { background: rgba(255,166,0,.22); box-shadow: inset 3px 0 var(--warning-color, #ffa600); }
 pre.code .add { background: rgba(67,160,71,.18); }
 pre.code .del { background: rgba(219,68,55,.16); }
-table.diff td .old { color: var(--error-color, #db4437); }
-table.diff td .new { color: var(--success-color, #43a047); }
+table.diff td .old { color: var(--s-error-text); }
+table.diff td .new { color: var(--s-ok-text); }
 table.diff th, table.edges th { width: auto; }
-.op-add, .lvl-info { color: var(--info-color, #039be5); }
-.op-remove, .lvl-error, .lvl-risk { color: var(--error-color, #db4437); }
-.op-replace, .lvl-warning { color: var(--warning-color, #ffa600); }
-.lvl-unsupported { color: var(--secondary-text-color); }
-.type-unresolved_reference { color: var(--error-color, #db4437); }
+.op-add, .lvl-info { --badge: var(--info-color, #039be5); }
+.op-remove, .lvl-error, .lvl-risk { --badge: var(--error-color, #db4437); }
+.op-replace, .lvl-warning { --badge: var(--warning-color, #ffa600); }
+.lvl-unsupported { --badge: var(--secondary-text-color); }
+.type-unresolved_reference { --badge: var(--error-color, #db4437); }
 .hyp { border-top: 1px solid var(--divider-color); padding: 12px 0; }
 .hyp:first-of-type { border-top: 0; }
 .hyp .title { font-weight: 500; overflow-wrap: anywhere; }
@@ -151,10 +159,10 @@ table.features th, table.features td { width: auto; text-align: center; padding:
 .small-text { font-size: 12px; }
 fieldset.plain { border: 0; padding: 0; margin: 0; }
 fieldset.plain legend { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 4px; }
-button.danger { background: var(--error-color, #db4437); border-color: var(--error-color, #db4437); }
-.hyp-strong { color: var(--error-color, #db4437); }
-.hyp-possible { color: var(--warning-color, #ffa600); }
-.hyp-none { color: var(--secondary-text-color); }
+button.danger { background: var(--s-danger-bg); border-color: var(--s-danger-bg); }
+.hyp-strong { --badge: var(--error-color, #db4437); }
+.hyp-possible { --badge: var(--warning-color, #ffa600); }
+.hyp-none { --badge: var(--secondary-text-color); }
 @media (max-width: 600px) {
   .grid2 { grid-template-columns: 1fr; }
   main { padding: 12px; }

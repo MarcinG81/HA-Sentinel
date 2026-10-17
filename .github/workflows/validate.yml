@@ -44,3 +44,7 @@ jobs:
       - run: npm run build
       - name: Committed bundle must match the sources
         run: git diff --exit-code -- ../custom_components/ha_sentinel/frontend/
+      - name: Accessibility audit (axe-core, WCAG 2.1 AA) and detector self-check
+        run: |
+          npm run a11y -- "$(which google-chrome)"
+          ! A11Y_SELF_CHECK=1 npm run a11y -- "$(which google-chrome)"

@@ -6,9 +6,11 @@
   "scripts": {
     "build": "tsc --noEmit && esbuild src/main.ts --bundle --format=esm --target=es2021 --minify --legal-comments=none --outfile=../custom_components/ha_sentinel/frontend/ha-sentinel.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "a11y": "node a11y/run.mjs"
   },
   "devDependencies": {
+    "axe-core": "^4.10.3",
     "esbuild": "0.28.2",
     "typescript": "5.9.3"
   }

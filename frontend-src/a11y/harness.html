@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel a11y harness</title>
+<style>
+/* Tokens read from a live HA 2026.10.2 default theme (light), plus the stock dark theme. */
+:root{--primary-color:#009ac7;--primary-background-color:#fafafa;--secondary-background-color:#e5e5e5;--card-background-color:#fff;--primary-text-color:#141414;--secondary-text-color:#5e5e5e;--divider-color:#0000001f;--app-header-background-color:#fff;--app-header-text-color:#141414;--error-color:#db4437;--warning-color:#ffa600;--success-color:#43a047;--info-color:#039be5;--text-primary-color:#fff}
+:root.dark{--app-header-background-color:#101e24;--app-header-text-color:#e1e1e1;--primary-background-color:#111;--secondary-background-color:#202020;--card-background-color:#1c1c1c;--primary-text-color:#e1e1e1;--secondary-text-color:#9b9b9b;--divider-color:rgba(225,225,225,.12);--app-header-background-color:#101e24}
+body{margin:0;font-family:Roboto,Helvetica,Arial,sans-serif;background:var(--primary-background-color)}
+</style></head><body>
+<script type="module">
+import "../../custom_components/ha_sentinel/frontend/ha-sentinel.js";
+import { DATA } from "./mock.js";
+const p = new URLSearchParams(location.search);
+if (p.get("dark")) document.documentElement.classList.add("dark");
+const el = document.createElement("ha-sentinel-panel");
+el.hass = {
+  language: p.get("lang") || "pl", config: { time_zone: "Europe/Warsaw" },
+  callWS: async (m) => structuredClone(DATA[m.type] ?? {}),
+  fetchWithAuth: async () => new Response("", { status: 404 }),
+  connection: { subscribeMessage: async () => async () => {}, addEventListener() {}, removeEventListener() {} },
+};
+el.narrow = window.innerWidth < 600;
+el.route = { prefix: "/ha-sentinel", path: "/" + (p.get("view") || "") };
+document.body.appendChild(el);
+window.__panel = el;
+</script></body></html>
