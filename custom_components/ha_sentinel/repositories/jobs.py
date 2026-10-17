@@ -182,7 +182,7 @@ def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int
         counts["snapshots"] = conn.execute(
             "DELETE FROM snapshots WHERE id IN (SELECT s.id FROM snapshots s WHERE "
             "s.created_us < ? AND s.id != (SELECT id FROM snapshots WHERE "
-            "resource_id = s.resource_id ORDER BY created_us DESC, id DESC LIMIT 1) LIMIT ?)",
+            "resource_id = s.resource_id ORDER BY created_us DESC, rowid DESC LIMIT 1) LIMIT ?)",
             (now_us - snapshot_days * DAY_US, PURGE_BATCH),
         ).rowcount
         counts["jobs"] = conn.execute(

@@ -173,13 +173,15 @@ def upsert_finding(conn: sqlite3.Connection, f: Finding, now_us: int) -> None:
     with _tx(conn):
         conn.execute(
             "INSERT INTO findings(id, fingerprint, rule_id, rule_version, subject_uid, status, "
-            "severity, confidence, coverage_json, first_us, last_us, resolved_us) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+            "severity, confidence, coverage_json, first_us, last_us, resolved_us, details_json) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
             "status=excluded.status, severity=excluded.severity, last_us=excluded.last_us, "
-            "resolved_us=excluded.resolved_us, coverage_json=excluded.coverage_json",
+            "resolved_us=excluded.resolved_us, coverage_json=excluded.coverage_json, "
+            "details_json=excluded.details_json",
             (f.id, f.fingerprint, f.rule_id, f.rule_version, f.subject_uid, str(f.status),
              str(f.severity), f.confidence, dumps_strict({"status": str(f.coverage)}),
-             f.first_seen_us, f.last_seen_us, f.resolved_at_us),
+             f.first_seen_us, f.last_seen_us, f.resolved_at_us,
+             dumps_strict(f.details or {})),
         )
         for obs_id in f.evidence_ids:
             conn.execute(
@@ -375,7 +377,8 @@ def get_incident(conn: sqlite3.Connection, incident_id: str) -> dict | None:
     for fid in finding_ids:
         f = conn.execute(
             "SELECT id, rule_id, rule_version, subject_uid, status, severity, confidence, "
-            "coverage_json, first_us, last_us, resolved_us FROM findings WHERE id=?",
+            "coverage_json, first_us, last_us, resolved_us, details_json FROM findings "
+            "WHERE id=?",
             (fid,),
         ).fetchone()
         if f is None:
@@ -398,6 +401,7 @@ def get_incident(conn: sqlite3.Connection, incident_id: str) -> dict | None:
             })
         fd = dict(f)
         fd["coverage"] = json.loads(fd.pop("coverage_json")).get("status")
+        fd["details"] = safe_details(json.loads(fd.pop("details_json") or "{}"))
         fd["evidence"] = evidence
         findings.append(fd)
     incident["findings"] = findings
@@ -405,6 +409,26 @@ def get_incident(conn: sqlite3.Connection, incident_id: str) -> dict | None:
 
 
 _EVIDENCE_FIELDS = ("from", "to", "availability", "value", "unit", "device_class")
+# Finding details shown in the API: only these fields, whatever a rule stored.
+_DETAIL_FIELDS = ("resolution", "value", "threshold", "entries", "latest_version", "ratio",
+                  "outcome", "resource_label", "imported_at", "missing_count", "stale_count",
+                  "missing", "stale")
+_REF_FIELDS = ("entity_id", "current", "pointer")
+
+
+def safe_details(details: dict | None) -> dict:
+    out = {}
+    for key in _DETAIL_FIELDS:
+        if key not in (details or {}):
+            continue
+        value = details[key]
+        if key in ("missing", "stale") and isinstance(value, list):
+            value = [{k: str(v[k]) for k in _REF_FIELDS if k in v}
+                     for v in value[:20] if isinstance(v, dict)]
+        elif not isinstance(value, (str, int, float, bool)) and value is not None:
+            continue
+        out[key] = value
+    return out
 
 
 def _safe_evidence_payload(payload: dict | None) -> dict | None:
@@ -577,7 +601,7 @@ def load_active_findings(conn: sqlite3.Connection) -> list[Finding]:
 
     rows = conn.execute(
         "SELECT id, rule_id, rule_version, subject_uid, status, severity, confidence, "
-        "coverage_json, first_us, last_us FROM findings WHERE status='active'"
+        "coverage_json, first_us, last_us, details_json FROM findings WHERE status='active'"
     ).fetchall()
     out = []
     for r in rows:
@@ -587,6 +611,6 @@ def load_active_findings(conn: sqlite3.Connection) -> list[Finding]:
             subject_uid=r["subject_uid"], status=FindingStatus.ACTIVE,
             severity=Severity(r["severity"]), first_seen_us=r["first_us"],
             last_seen_us=r["last_us"], confidence=r["confidence"],
-            coverage=CoverageStatus(cov),
+            coverage=CoverageStatus(cov), details=json.loads(r["details_json"] or "{}"),
         ))
     return out

@@ -14,6 +14,8 @@ import type {
   Incident,
   IncidentDetail,
   IncidentPage,
+  FindingDetails,
+  FindingRef,
   Overview,
   Severity,
   Subject,
@@ -309,6 +311,25 @@ class SentinelPanel extends HTMLElement {
     );
   }
 
+  /** Rule-specific facts of a finding; every value is rendered as text. */
+  private findingDetails(d: FindingDetails | undefined): HTMLElement | null {
+    if (!d || Object.keys(d).length === 0) return null;
+    const t = this.t;
+    const facts: string[] = [];
+    if (d.value !== undefined) facts.push(`${t("fd.value")}: ${d.value}`);
+    if (d.threshold !== undefined) facts.push(`${t("fd.threshold")}: ${d.threshold}`);
+    if (d.entries !== undefined) facts.push(`${t("fd.entries")}: ${d.entries}`);
+    if (d.latest_version) facts.push(`${t("fd.latest_version")}: ${d.latest_version}`);
+    if (d.ratio !== undefined) facts.push(`${t("fd.ratio")}: ${Math.round(d.ratio * 100)}%`);
+    if (d.resolution) facts.push(`${t("fd.resolution")}: ${t(`fd.res.${d.resolution}`)}`);
+    if (d.resource_label) facts.push(`${t("fd.resource")}: ${d.resource_label}${d.imported_at ? ` (${t("fd.imported")} ${this.date(d.imported_at)})` : ""}`);
+    const refs = (items: FindingRef[] | undefined, key: string) => items && items.length
+      ? h("div", {}, h("p", { class: "sub" }, t(key)), h("ul", { class: "plain" }, items.map((r) => h("li", {}, h("code", {}, r.entity_id), r.current ? ` → ${r.current}` : ""))))
+      : null;
+    return h("div", {}, facts.length ? h("p", { class: "muted" }, facts.join(" · ")) : null,
+      refs(d.missing, "fd.missing"), refs(d.stale, "fd.stale"));
+  }
+
   private errorCard(err: WsError): HTMLElement {
     const t = this.t;
     return h(
@@ -548,7 +569,7 @@ class SentinelPanel extends HTMLElement {
         h("dd", {}, t(`status.${inc.status}`)),
         inc.kind === "infrastructure"
           ? [h("dt", {}, t("detail.effects")), h("dd", {}, t("incident.members").replace("{n}", String(inc.member_count)))]
-          : [h("dt", {}, t("detail.entity")), h("dd", {}, this.subjectText(inc.subject), inc.subject.entity_id ? h("div", {}, h("code", {}, inc.subject.entity_id)) : null)],
+          : [h("dt", {}, t(inc.subject.uid?.startsWith("resource:") ? "fd.resource" : "detail.entity")), h("dd", {}, this.subjectText(inc.subject), inc.subject.entity_id ? h("div", {}, h("code", {}, inc.subject.entity_id)) : null)],
         h("dt", {}, t("detail.opened")),
         h("dd", {}, this.date(inc.opened_at, true)),
         inc.resolved_at ? [h("dt", {}, t("detail.resolved")), h("dd", {}, this.date(inc.resolved_at, true))] : null,
@@ -573,6 +594,7 @@ class SentinelPanel extends HTMLElement {
           inc.kind === "infrastructure" ? h("h3", {}, this.subjectText(f.subject)) : null,
           h("p", { class: "muted" }, `${f.rule_id} v${f.rule_version} · ${t(`status.${f.status === "active" ? "open" : f.status}`)} · ${t("detail.coverage")}: ${t(`cov.${f.coverage}`)}`),
           h("p", {}, `${t("detail.first_seen")} ${this.date(f.first_seen, true)}`),
+          this.findingDetails(f.details),
           h("ul", { class: "list" }, f.evidence.map((e) => h("li", {}, this.evidenceRow(e)))),
         ),
       ),

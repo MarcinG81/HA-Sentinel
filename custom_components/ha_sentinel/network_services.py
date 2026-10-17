@@ -39,7 +39,14 @@ from .core.models import (
 )
 from .modules.correlation.correlator import CandidateEvidence
 from .modules.dependency_mapper.graph import Edge, Node
-from .modules.network.scheduler import Outcome, ProbeBook, ProbeLimiter, Status
+from .modules.network.scheduler import (
+    FAILURES_TO_UNREACHABLE,
+    Outcome,
+    ProbeBook,
+    ProbeLimiter,
+    Status,
+    TargetState,
+)
 from .modules.network.targets import (
     TargetRejected,
     TargetSpec,
@@ -168,6 +175,24 @@ class NetworkService:
             f.status = FindingStatus.RESOLVED
             f.resolved_at_us = f.last_seen_us = now_us
             await self.rt.db.run(lambda c: repo.upsert_finding(c, f, now_us))
+
+    def restore(self, findings: list[Finding]) -> list[Finding]:
+        """Take over restored NET001 findings of approved targets that are still probed.
+
+        The book starts in the unreachable state so a recovery closes the finding and a
+        persisting failure is not announced again as new.
+        """
+        rest = []
+        for f in findings:
+            tid = f.subject_uid.removeprefix("endpoint:")
+            if f.rule_id == "NET001" and self.active and tid in self.targets:
+                self.findings[tid] = f
+                self.book.targets[tid] = TargetState(
+                    status=Status.UNREACHABLE, failures=FAILURES_TO_UNREACHABLE,
+                    unreachable_since_us=f.first_seen_us)
+            else:
+                rest.append(f)
+        return rest
 
     # --- Read model for correlation and graph ---------------------------------------
 

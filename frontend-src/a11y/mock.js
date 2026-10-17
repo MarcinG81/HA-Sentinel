@@ -24,7 +24,7 @@ export const DATA = {
   "ha_sentinel/incidents/list": { items, next_cursor: null, revision: 7 },
   "ha_sentinel/incidents/get": { ...infra, hypotheses: hyps, counter_evidence: [], confirmed_cause: null,
     findings: [{ id: "f1", rule_id: "DOC001", rule_version: 1, status: "active", severity: "high", confidence: 1, coverage: "complete",
-      subject: subject("MQTT 1", "sensor.mqtt_1"), first_seen: "2026-10-17T09:42:03Z", last_seen: "2026-10-17T09:42:03Z", resolved_at: null,
+      subject: subject("MQTT 1", "sensor.mqtt_1"), first_seen: "2026-10-17T09:42:03Z", last_seen: "2026-10-17T09:42:03Z", resolved_at: null, details: { value: 12.5, threshold: 20, resolution: "rule_revised", missing: [{ entity_id: "light.gone" }], stale: [{ entity_id: "light.old", current: "light.new" }] },
       evidence: [{ kind: "availability.changed", received_at: "2026-10-17T09:42:03Z", occurred_at: "2026-10-17T09:42:03Z", payload: { from: "available", to: "unavailable" }, evidence_expired: false }] }] },
   "ha_sentinel/numeric/list": { numeric_sampling: false, items: [
     { id: "n1", subject_uid: "u3", subject_label: "sensor.lock_power", subject_deleted: false, purpose: "battery", scale_min: 0, scale_max: 255, threshold: null, sampling: true },

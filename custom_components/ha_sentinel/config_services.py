@@ -21,6 +21,7 @@ from .adapters.registry import RegistrySnapshot, async_snapshot
 from .const import DATA_DIR, DOMAIN
 from .core.clock import us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
+from .core.models import CoverageStatus, Finding, FindingStatus, Severity, new_uuid
 from .core.yaml_ast import parse
 from .modules.autopilot import draft as wizard
 from .modules.autopilot.lint import lint
@@ -29,6 +30,7 @@ from .modules.config_history.canonical import canonical_hash, semantic_diff, tex
 from .modules.config_history.importer import PreparedImport, prepare_import
 from .modules.config_history.render import to_yaml
 from .modules.dependency_mapper.graph import DependencyGraph, ImportedResource, build_graph
+from .modules.doctor.references import ImportRefs, evaluate
 from .repositories import history
 from .repositories.blobs import BlobStore
 
@@ -50,6 +52,7 @@ class ConfigServices:
         self._graph_timer: CALLBACK_TYPE | None = None
         self._graph_lock = asyncio.Lock()
         self._unsubs: list[CALLBACK_TYPE] = []
+        self.ref_findings: dict[str, Finding] = {}  # "resource:<id>" -> DOC006
 
     async def async_start(self) -> None:
         for event in (er.EVENT_ENTITY_REGISTRY_UPDATED, dr.EVENT_DEVICE_REGISTRY_UPDATED,
@@ -95,20 +98,78 @@ class ConfigServices:
             net_nodes, net_edges = (self.rt.network.graph_elements()
                                     if self.rt.network is not None else ([], []))
 
-            def build() -> DependencyGraph:
+            def build() -> tuple[DependencyGraph, list[ImportRefs]]:
                 imports = [
                     ImportedResource(r["resource_id"], r["label"], extract(r["tree"], r["kind"]),
                                      us_to_rfc3339(r["created_us"]))
                     for r in rows
                 ]
-                return build_graph(entities=snap.entities, devices=snap.devices,
-                                   entries=snap.entries, areas=snap.areas, imports=imports,
-                                   revision=revision, extra_nodes=net_nodes,
-                                   extra_edges=net_edges)
+                refs = [
+                    ImportRefs(i.resource_id, i.label, i.imported_at,
+                               complete=i.model.completeness == 1.0 and not i.model.unsupported,
+                               refs=tuple((ref.value, ref.pointer) for r in i.model.runnables
+                                          for ref in r.refs if ref.kind == "entity"))
+                    for i in imports
+                ]
+                graph = build_graph(entities=snap.entities, devices=snap.devices,
+                                    entries=snap.entries, areas=snap.areas, imports=imports,
+                                    revision=revision, extra_nodes=net_nodes,
+                                    extra_edges=net_edges)
+                return graph, refs
 
-            self.graph = await self.hass.async_add_executor_job(build)
+            self.graph, refs = await self.hass.async_add_executor_job(build)
             self.graph_built_us = self.rt.clock.now_us()
+            await self._check_references(refs, snap)
         self.rt.bump()
+
+    # --- DOC006 missing / stale references (spec 8.1, 22.1) ------------------------------
+
+    def restore(self, findings: list[Finding]) -> list[Finding]:
+        """Take over restored DOC006 findings; returns the ones this module does not own."""
+        rest = []
+        for f in findings:
+            if f.rule_id == "DOC006" and f.subject_uid.startswith("resource:"):
+                self.ref_findings[f.subject_uid] = f
+            else:
+                rest.append(f)
+        return rest
+
+    async def _check_references(self, refs: list[ImportRefs], snap: RegistrySnapshot) -> None:
+        if not self.rt.modules_enabled["doctor"] or not self.rt.storage_writable:
+            return
+        complete = self.rt.state.value == "ready" and not self.rt.queues.degraded
+        if not complete:
+            return  # never close or raise on a partial inventory
+        now = self.rt.clock.now_us()
+        deleted = {e.current_alias: e.deleted_at_us for e in self.rt.inventory.all_entities()
+                   if e.deleted_at_us is not None}
+        issues = evaluate(refs, snap.entity_status, deleted, now, inventory_complete=True)
+        changed: list[Finding] = []
+        for rid, issue in issues.items():
+            uid = f"resource:{rid}"
+            severity = Severity.WARNING if issue.missing else Severity.INFO
+            current = self.ref_findings.get(uid)
+            if current is not None and current.severity is severity \
+                    and current.details == issue.details:
+                continue
+            f = Finding(id=current.id if current else new_uuid(), rule_id="DOC006",
+                        rule_version=1, subject_uid=uid, status=FindingStatus.ACTIVE,
+                        severity=severity,
+                        first_seen_us=current.first_seen_us if current else now,
+                        last_seen_us=now, coverage=CoverageStatus.COMPLETE,
+                        details=issue.details)
+            self.ref_findings[uid] = f
+            changed.append(f)
+        for uid in [u for u in self.ref_findings if u.removeprefix("resource:") not in issues]:
+            f = self.ref_findings.pop(uid)
+            f.status = FindingStatus.RESOLVED
+            f.resolved_at_us = f.last_seen_us = now
+            changed.append(f)
+        await self.rt.commit_findings(changed)
+
+    def resource_label(self, uid: str) -> str | None:
+        f = self.ref_findings.get(uid)
+        return f.details.get("resource_label") if f else None
 
     # --- Config history ------------------------------------------------------------------
 

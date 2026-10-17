@@ -327,6 +327,7 @@ async def ws_incidents_get(hass, connection, msg, runtime) -> None:
             "first_seen": us_to_rfc3339(f["first_us"]),
             "last_seen": us_to_rfc3339(f["last_us"]),
             "resolved_at": us_to_rfc3339(r) if (r := f["resolved_us"]) else None,
+            "details": f["details"],
             "evidence": [
                 {
                     "kind": e["kind"],

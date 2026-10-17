@@ -71,6 +71,16 @@ class DataServices:
 
     # --- Storage pressure (spec 7.3, DOC010) ---------------------------------------------------
 
+    def restore(self, findings: list[Finding]) -> list[Finding]:
+        """Take over a restored DOC010; the next pressure check confirms or closes it."""
+        rest = []
+        for f in findings:
+            if f.rule_id == "DOC010" and f.subject_uid == "sentinel:storage":
+                self.findings[f.subject_uid] = f
+            else:
+                rest.append(f)
+        return rest
+
     def _usage_bytes(self) -> int:
         total = 0
         for path in self.root.rglob("*"):

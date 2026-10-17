@@ -61,7 +61,7 @@ def save_snapshot(
             raise SentinelError(ErrorCode.CONFLICT, "resource kind mismatch")
         latest = conn.execute(
             "SELECT id, hash, raw_hash FROM snapshots WHERE resource_id=? "
-            "ORDER BY created_us DESC, id DESC LIMIT 1",
+            "ORDER BY created_us DESC, rowid DESC LIMIT 1",
             (resource_id,),
         ).fetchone()
         if latest and latest["hash"] == canonical_hash and latest["raw_hash"] == raw_hash:
@@ -89,7 +89,7 @@ def save_snapshot(
     # Keep at most 50 snapshots per resource, always keeping the newest (spec 7.3).
     conn.execute(
         "DELETE FROM snapshots WHERE resource_id=? AND id NOT IN (SELECT id FROM snapshots "
-        "WHERE resource_id=? ORDER BY created_us DESC, id DESC LIMIT ?)",
+        "WHERE resource_id=? ORDER BY created_us DESC, rowid DESC LIMIT ?)",
         (resource_id, resource_id, MAX_SNAPSHOTS_PER_RESOURCE),
     )
     insert_audit(conn, actor_id, request_id, f"snapshot.create.{kind}", resource_id, "ok",
@@ -145,7 +145,7 @@ def list_snapshots(conn: sqlite3.Connection, resource_id: str, limit: int,
         where += " AND (created_us < ? OR (created_us = ? AND id < ?))"
         params += [after[0], after[0], after[1]]
     rows = conn.execute(
-        f"SELECT {_META} FROM snapshots WHERE {where} ORDER BY created_us DESC, id DESC LIMIT ?",
+        f"SELECT {_META} FROM snapshots WHERE {where} ORDER BY created_us DESC, rowid DESC LIMIT ?",
         (*params, limit),
     ).fetchall()
     return [_snapshot_meta(r) for r in rows]
@@ -174,7 +174,7 @@ def latest_imports(conn: sqlite3.Connection, blobs: BlobStore) -> list[dict[str,
     rows = conn.execute(
         "SELECT r.id AS resource_id, r.kind, r.label, s.id AS snapshot_id, s.blob_ref, "
         "s.created_us FROM resources r JOIN snapshots s ON s.id = (SELECT id FROM snapshots "
-        "WHERE resource_id=r.id ORDER BY created_us DESC, id DESC LIMIT 1) "
+        "WHERE resource_id=r.id ORDER BY created_us DESC, rowid DESC LIMIT 1) "
         "WHERE r.kind IN ('automation','script','blueprint')"
     ).fetchall()
     return [{**dict(r), "tree": json.loads(blobs.get(r["blob_ref"]))} for r in rows]

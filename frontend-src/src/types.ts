@@ -118,7 +118,30 @@ export interface FindingDetail {
   first_seen: string;
   last_seen: string;
   resolved_at: string | null;
+  details?: FindingDetails;
   evidence: Evidence[];
+}
+
+export interface FindingRef {
+  entity_id: string;
+  current?: string;
+  pointer?: string;
+}
+
+export interface FindingDetails {
+  resolution?: string;
+  value?: number;
+  threshold?: number;
+  entries?: number;
+  latest_version?: string;
+  ratio?: number;
+  outcome?: string;
+  resource_label?: string;
+  imported_at?: string;
+  missing_count?: number;
+  stale_count?: number;
+  missing?: FindingRef[];
+  stale?: FindingRef[];
 }
 
 export interface IncidentDetail extends Incident {

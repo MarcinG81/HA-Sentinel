@@ -79,6 +79,7 @@ from .core.models import (
     CoverageSegment,
     CoverageStatus,
     Finding,
+    FindingStatus,
     ModuleState,
     Observation,
     ObservationKind,
@@ -90,7 +91,7 @@ from .data_services import DataServices
 from .maintenance_services import MaintenanceService
 from .modules.correlation.correlator import ActiveFinding, ExistingIncident, correlate
 from .modules.dependency_mapper.graph import DependencyGraph
-from .modules.doctor.engine import DoctorEngine, DoctorParams
+from .modules.doctor.engine import DOCTOR_RULES, DoctorEngine, DoctorParams
 from .modules.doctor.health import HealthResult, HealthUnit, compute_health
 from .modules.doctor.numeric import NumericSource
 from .network_services import NetworkService
@@ -220,7 +221,9 @@ class SentinelRuntime:
         self._pending_inventory.extend(
             self.inventory.load(entities, devices, self.clock.now_us()))
         await self.maintenance.async_load()
-        self.doctor.restore(await self.db.run(repo.load_active_findings))
+        restored = await self.db.run(repo.load_active_findings)
+        self.doctor.restore(restored)  # takes only the rules it evaluates
+        other_findings = [f for f in restored if f.rule_id not in DOCTOR_RULES]
         if not self.modules_enabled["doctor"]:
             # A switched-off Doctor must not leave findings that look current.
             closed_by_module = self.doctor.close_all(self.clock.now_us(), "module_disabled")
@@ -296,6 +299,7 @@ class SentinelRuntime:
                 _LOGGER.exception("Recovery of interrupted applies failed")
                 self.capabilities["managed_yaml.restore"] = Capability(
                     "managed_yaml.restore", CapabilityStatus.UNAVAILABLE, "recovery_failed")
+        await self._adopt_findings(other_findings)
         self._update_degradation(0)
         if self.state is ModuleState.STARTING:
             self.state = ModuleState.READY
@@ -531,6 +535,22 @@ class SentinelRuntime:
         self._offer(self._make_obs(ObservationKind.HEARTBEAT, uid, {},
                                    _dt_us(state.last_reported)))
 
+    async def _adopt_findings(self, findings: list[Finding]) -> None:
+        """Hand restored findings to their owner modules; close those without an owner.
+
+        Without this, DOC010 / NET001 / DOC006 from the last boot would stay active forever
+        next to the new findings of the same problem.
+        """
+        for owner in (self.data, self.network, self.config):
+            if owner is not None and findings:
+                findings = owner.restore(findings)
+        now = self.clock.now_us()
+        for f in findings:
+            f.status = FindingStatus.RESOLVED
+            f.resolved_at_us = f.last_seen_us = now
+            f.details = {**f.details, "resolution": "owner_unavailable"}
+        await self._commit_findings(findings)
+
     async def commit_findings(self, findings: list[Finding]) -> None:
         await self._commit_findings(findings)
 
@@ -663,6 +683,7 @@ class SentinelRuntime:
             now = self.clock.now_us()
             network_findings = self.network.active_findings() if self.network else []
             network_findings += list(self.data.findings.values()) if self.data else []
+            network_findings += list(self.config.ref_findings.values()) if self.config else []
             findings = [
                 ActiveFinding(f.id, f.rule_id, f.subject_uid, f.severity, f.first_seen_us)
                 for f in [*self.doctor.active_findings(), *network_findings]
@@ -799,6 +820,9 @@ class SentinelRuntime:
 
     def subject_label(self, uid: str | None) -> dict[str, Any]:
         """Display data for a subject; rendered as text only by the panel."""
+        if uid and uid.startswith("resource:") and self.config is not None:
+            return {"uid": uid, "entity_id": None, "name": self.config.resource_label(uid),
+                    "deleted": False}
         ent = self.inventory.get(uid) if uid else None
         if ent is None:
             return {"uid": uid, "entity_id": None, "name": None, "deleted": False}

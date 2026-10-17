@@ -75,6 +75,8 @@ MAINTENANCE_RECHECK_S = 60
 STATELESS_DOMAINS = frozenset({"button", "input_button", "scene", "event", "conversation",
                                "tts", "stt", "wake_word", "notify", "ai_task", "image"})
 RULE_VERSION = 1
+# Rules evaluated by this engine; other modules own DOC006, DOC010 and NET001.
+DOCTOR_RULES = frozenset(RULE_SEVERITY)
 # DOC002 v2: only live transitions to "unknown", never stateless domains.
 RULE_VERSIONS = {"DOC002": 2}
 
@@ -125,7 +127,7 @@ class DoctorEngine:
     def restore(self, findings: list[Finding]) -> None:
         """Load active findings after a restart so they are not re-announced."""
         for f in findings:
-            if f.status is FindingStatus.ACTIVE:
+            if f.status is FindingStatus.ACTIVE and f.rule_id in DOCTOR_RULES:
                 self._findings[f.fingerprint] = f
 
     def active_findings(self) -> list[Finding]:
