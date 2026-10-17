@@ -54,5 +54,23 @@
         "name": "Sentinel degraded"
       }
     }
+  },
+  "issues": {
+    "unsupported_schema": {
+      "title": "HA Sentinel database is newer than this version",
+      "description": "The file {file} was written by a newer Sentinel. This version opens it read-only and stores nothing. Reinstall the newer Sentinel, or follow the downgrade steps in the runbook (restore the pre-migration backup sentinel.vN.bak.db)."
+    },
+    "database_corrupted": {
+      "title": "HA Sentinel database is damaged",
+      "description": "The file {file} could not be read. It was left untouched for diagnosis and Sentinel runs without storing history. Restore it from a Home Assistant backup or delete Sentinel data in the panel to start over."
+    },
+    "migration_failed": {
+      "title": "HA Sentinel database upgrade failed",
+      "description": "Upgrading {file} failed and was rolled back; the file and its pre-migration backup are untouched. Sentinel runs without storing history. Report the issue and keep both files."
+    },
+    "insufficient_space_for_migration": {
+      "title": "Not enough disk space to upgrade HA Sentinel data",
+      "description": "Upgrading {file} needs free space of twice the database size (at least 256 MiB). Sentinel runs read-only until space is available."
+    }
   }
 }

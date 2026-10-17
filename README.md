@@ -1,7 +1,8 @@
 # HA Sentinel
 
 Local health, change history and dependency insight for Home Assistant.
-Status: **pre-MVP (0.1.0-dev)** — see [docs/PLAN.md](docs/PLAN.md).
+Status: **0.1.0-dev** — roadmap in [docs/PLAN.md](docs/PLAN.md), operations in
+[docs/RUNBOOK.md](docs/RUNBOOK.md), supported versions in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 What works today:
 

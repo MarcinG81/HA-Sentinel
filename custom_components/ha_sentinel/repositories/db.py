@@ -31,6 +31,10 @@ class DbMode(StrEnum):
     READ_ONLY = "read_only"  # newer schema or not enough space to migrate
 
 
+class MigrationError(sqlite3.DatabaseError):
+    """A migration step failed; its transaction was rolled back."""
+
+
 class UnsupportedSchemaError(Exception):
     def __init__(self, found: int) -> None:
         super().__init__(f"database schema {found} is newer than supported {SCHEMA_VERSION}")
@@ -128,8 +132,10 @@ def migrate(conn: sqlite3.Connection, path: Path | None, now_us: int) -> DbMode:
             if violations:
                 raise sqlite3.IntegrityError(f"foreign key violations after v{version}")
             conn.execute("COMMIT")
-        except BaseException:
+        except BaseException as err:
             conn.execute("ROLLBACK")
+            if isinstance(err, Exception) and not isinstance(err, MigrationError):
+                raise MigrationError(f"migration to v{version} failed: {err}") from err
             raise
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     if integrity != "ok":
@@ -146,6 +152,14 @@ class DatabaseWorker:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ha_sentinel_db")
         self._conn: sqlite3.Connection | None = None
         self.mode: DbMode = DbMode.READ_ONLY
+        # Why storage is not writable (None when healthy): unsupported_schema,
+        # database_corrupted, migration_failed. The original file is never modified then.
+        self.reason: str | None = None
+
+    @property
+    def path_hint(self) -> str:
+        """File name only; absolute paths are never shown in UI or exports."""
+        return self._path.name if self._path is not None else ":memory:"
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -156,15 +170,31 @@ class DatabaseWorker:
     def _open_sync(self, now_us: int) -> DbMode:
         if self._path is not None:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = open_connection(self._raw_path)
         try:
+            self._conn = open_connection(self._raw_path)
             self.mode = migrate(self._conn, self._path, now_us)
+            if self.mode is DbMode.READ_ONLY:
+                self.reason = "insufficient_space_for_migration"
         except UnsupportedSchemaError:
             # Older code never writes to a newer DB (spec 19.3, T17).
             self._conn.close()
             self._conn = open_connection(self._raw_path, read_only=True)
             self.mode = DbMode.READ_ONLY
+            self.reason = "unsupported_schema"
             raise
+        except sqlite3.DatabaseError as err:
+            # Corrupted file or failed migration: keep the file untouched for diagnosis and
+            # recovery, and run on an empty in-memory DB instead of silently starting a new
+            # history on disk (spec 19.2).
+            reason = "migration_failed" if isinstance(err, MigrationError) else \
+                "database_corrupted"
+            _LOGGER.error("Sentinel database unusable (%s): %s", reason, err)
+            if self._conn is not None:
+                self._conn.close()
+            self._conn = open_connection(":memory:")
+            migrate(self._conn, None, now_us)
+            self.mode = DbMode.READ_ONLY
+            self.reason = reason
         return self.mode
 
     def _close_sync(self) -> None:

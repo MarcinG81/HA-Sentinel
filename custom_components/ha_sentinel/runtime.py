@@ -61,6 +61,7 @@ from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
 from .modules.doctor.health import HealthResult, HealthUnit, compute_health
 from .network_services import NetworkService
+from .repairs import async_update_storage_issue
 from .repositories import repository as repo
 from .repositories.db import DatabaseWorker, DbMode, UnsupportedSchemaError
 
@@ -141,7 +142,8 @@ class SentinelRuntime:
             self.reason_code = "unsupported_schema"
         if mode is DbMode.READ_ONLY:
             self.state = ModuleState.DEGRADED
-            self.reason_code = self.reason_code or "storage_read_only"
+            self.reason_code = self.db.reason or self.reason_code or "storage_read_only"
+        async_update_storage_issue(self.hass, self.db.reason, self.db.path_hint)
 
         entities, devices = await self.db.run(repo.load_inventory)
         self.inventory.load(entities, devices)

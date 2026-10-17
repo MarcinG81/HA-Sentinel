@@ -54,5 +54,23 @@
         "name": "Sentinel zdegradowany"
       }
     }
+  },
+  "issues": {
+    "unsupported_schema": {
+      "title": "Baza HA Sentinel jest nowsza niż ta wersja",
+      "description": "Plik {file} zapisała nowsza wersja Sentinel. Ta wersja otwiera go tylko do odczytu i nic nie zapisuje. Zainstaluj ponownie nowszą wersję albo wykonaj kroki downgrade z runbooka (przywróć kopię sprzed migracji sentinel.vN.bak.db)."
+    },
+    "database_corrupted": {
+      "title": "Baza HA Sentinel jest uszkodzona",
+      "description": "Nie udało się odczytać pliku {file}. Pozostawiono go bez zmian do diagnostyki, a Sentinel działa bez zapisywania historii. Przywróć go z backupu Home Assistant albo usuń dane Sentinel w panelu, aby zacząć od nowa."
+    },
+    "migration_failed": {
+      "title": "Aktualizacja bazy HA Sentinel nie powiodła się",
+      "description": "Aktualizacja {file} nie powiodła się i została wycofana; plik i jego kopia sprzed migracji są nienaruszone. Sentinel działa bez zapisywania historii. Zgłoś problem i zachowaj oba pliki."
+    },
+    "insufficient_space_for_migration": {
+      "title": "Za mało miejsca na aktualizację danych HA Sentinel",
+      "description": "Aktualizacja {file} wymaga wolnego miejsca dwukrotności rozmiaru bazy (min. 256 MiB). Do tego czasu Sentinel działa tylko do odczytu."
+    }
   }
 }

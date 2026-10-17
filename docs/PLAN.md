@@ -17,7 +17,7 @@
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
-| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19–B23 zrobione; retencja/purge (REQ10) zrobione; B24 w toku |
+| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | **zrobione** (B19–B24, retencja/purge REQ10) |
 | E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
 
 ## Krytyczna ścieżka MVP
@@ -118,3 +118,11 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Historia z Recordera (`get_significant_states`, adapter klasy A: brak recordera → `recorder_unavailable`, zmiana sygnatury → `history_contract`); limity 50 encji, okno ≤ 24 h, ≤ 10 000 zdarzeń, timeout 5 s.
 - Raport: okno, liczba zdarzeń, encje bez stanu początkowego, obsługiwane / wszystkie triggery, wersja interpretera, lista nieodtworzonych fragmentów. Planowane akcje nie zmieniają kolejnych stanów (brak modelu urządzeń).
 - T10: test z prawdziwym Recorderem i szpiegiem `call_service` — zero wywołań usług.
+
+## E4 / B24 — upgrade, downgrade, uszkodzone dane
+
+- Nieudana migracja: transakcja wycofana, plik i kopia `sentinel.vN.bak.db` nienaruszone, Sentinel działa na pustej bazie w pamięci (Doctor dalej wykrywa awarie, nic nie zapisuje), Repairs `migration_failed` (T16).
+- Uszkodzony plik: zostaje bez zmian do diagnostyki, ten sam tryb ograniczony, Repairs `database_corrupted`. Nowszy schemat: tylko odczyt, Repairs `unsupported_schema` (T17). Brak miejsca: tylko odczyt, Repairs `insufficient_space_for_migration`.
+- Repairs wyłącznie dla domeny Sentinel; zgłoszenia znikają, gdy problem ustąpi.
+- Diagnostyka HA (`diagnostics.py`) z allowlisty pól: bez encji, nazw, adresów i ścieżek.
+- `docs/RUNBOOK.md`: instalacja, opcje, plik zarządzany, upgrade, downgrade krok po kroku, uszkodzona baza, HA nie startuje / frontend nie działa, presja obciążenia i miejsca, usuwanie danych i deinstalacja. `docs/COMPATIBILITY.md`: macierz zgodności i dowody kwalifikacji.
