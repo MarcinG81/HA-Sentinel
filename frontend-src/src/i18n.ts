@@ -508,6 +508,9 @@ const en = {
   "rule.DOC010": "Sentinel storage pressure",
   "rec.DOC009": "An update is offered for this item. Sentinel only reports it; it never installs updates.",
   "rec.DOC010": "Sentinel's own database is close to its budget. Lower retention or raise the budget in the options; Sentinel never deletes Home Assistant files.",
+  "diag.metrics": "Performance",
+  "diag.metrics_hint": "Recent samples since start (µs for callbacks, ms otherwise). Budgets in the standard profile: callback p99 ≤ 1000 µs, ingestion lag p95 ≤ 2000 ms, writer commit p95 ≤ 100 ms, API p95 ≤ 300 ms.",
+  "diag.queue_max": "Highest queue depth",
   yes: "yes",
   no: "no",
 };
@@ -1022,6 +1025,9 @@ const pl: Record<Key, string> = {
   "rule.DOC010": "Presja magazynu Sentinel",
   "rec.DOC009": "Dla tego elementu jest dostępna aktualizacja. Sentinel tylko o tym informuje i nigdy nie instaluje aktualizacji.",
   "rec.DOC010": "Własna baza Sentinel zbliża się do budżetu. Zmniejsz retencję lub zwiększ budżet w opcjach; Sentinel nigdy nie usuwa plików Home Assistant.",
+  "diag.metrics": "Wydajność",
+  "diag.metrics_hint": "Ostatnie próbki od startu (µs dla callbacków, ms dla reszty). Budżety profilu standard: callback p99 ≤ 1000 µs, lag ingestion p95 ≤ 2000 ms, commit writera p95 ≤ 100 ms, API p95 ≤ 300 ms.",
+  "diag.queue_max": "Największa głębokość kolejki",
   yes: "tak",
   no: "nie",
 };

@@ -143,6 +143,11 @@ export interface Diagnostics {
   storage: { db_bytes: number; observations: number; schema_version: number; mode: string };
   coverage_gaps: { source_id: string; scope: string; from: string; to: string | null; status: string; reason: string }[];
   doctor: { active_findings: number; flapping_partial: number; next_deadline: string | null };
+  metrics?: {
+    counters: Record<string, number>;
+    histograms: Record<string, { unit: string; count: number; p50: number | null; p95: number | null; p99: number | null; max: number | null }>;
+    queue_depth_max: number;
+  };
 }
 
 export interface ChangeEvent {

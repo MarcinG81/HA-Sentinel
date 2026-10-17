@@ -18,7 +18,7 @@
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
 | E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | **zrobione** (B19–B24, retencja/purge REQ10) |
-| E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | B26 a11y zrobione; B25 w toku; B27 wymaga prawdziwych instalacji |
+| E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | B25 (koszt przetwarzania), B26 zrobione; soak 24/72 h, CPU na sprzęcie referencyjnym i B27 (pilot) wymagają prawdziwych instalacji |
 
 ## Krytyczna ścieżka MVP
 
@@ -141,3 +141,11 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Pierwszy przebieg „bez naruszeń” był fałszywy (axe nie wchodził do shadow DOM przy kontekście `ShadowRoot`) — wykryte testem kontrolnym, naprawione (audyt całego dokumentu).
 - Realne naruszenia kontrastu naprawione: plakietki z kolorowym tekstem (np. ostrzeżenie 1,96:1) → kolor tylko w kropce/ramce; akcent i tło przycisków liczone `color-mix()` z kolorem tekstu motywu (AA w jasnym i ciemnym). Tokeny harnessu odczytane z żywego HA 2026.10.2 (`--primary-color: #009ac7`).
 - Metryki (20.1): koszt callbacku, lag ingestion, commit writera, czas reguł, korelacji i API (p50/p95/p99/max, rezerwuar 2048), maks. głębokość kolejki; w diagnostyce Sentinel i HA.
+
+## E5 / B25 — obciążenie
+
+- `tests/perf/test_load_standard.py` (marker `perf`, poza zwykłą serią): profil standard, budżety ze spec 21.1 jako asercje; raport w `docs/perf/REPORT.md`.
+- Krytyczny błąd znaleziony testem: snapshot startowy > 2000 stanów przepełniał kolejkę kontrolną → resync → znów przepełnienie (nieskończona pętla przy każdym starcie domu w profilu standard). Naprawione osobną ścieżką „baseline” poza kolejkami na żywo.
+- Pułapka pomiarowa: `freezer` (freezegun) zamraża też `perf_counter` — test wydajności nie używa `freezer`, a writer jest opróżniany jawnie (`async_flush`).
+- Nadzór modułów (4.3): writer ponawia po 5/15/60 s z jitterem, po 5 awariach w 10 min wstrzymanie do decyzji admina (`modules/resume`).
+- Łańcuch dostaw (16.3): workflow wydania (zip dla HACS, SHA-256, SBOM CycloneDX z `npm sbom`, kontrola zgodności wersji z tagiem i bundla ze źródłami), gitleaks i `npm audit` w CI, pokrycie testami w CI.

@@ -93,6 +93,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_maintenance_list,
         ws_maintenance_create,
         ws_maintenance_cancel,
+        ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -993,3 +994,17 @@ async def ws_maintenance_create(hass, connection, msg, runtime) -> None:
 async def ws_maintenance_cancel(hass, connection, msg, runtime) -> None:
     await runtime.maintenance.cancel(msg["window_id"], connection.user.id)
     connection.send_result(msg["id"], {"cancelled": True})
+
+
+@websocket_api.websocket_command(
+    _schema("modules/resume") | {vol.Required("module"): vol.In(["writer"]),
+                                 vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_modules_resume(hass, connection, msg, runtime) -> None:
+    """Restart a module paused after repeated failures (spec 4.3)."""
+    if not runtime.resume_writer():
+        raise SentinelError(ErrorCode.CONFLICT, "module is not paused")
+    connection.send_result(msg["id"], {"resumed": True})

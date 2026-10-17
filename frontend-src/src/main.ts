@@ -735,6 +735,7 @@ class SentinelPanel extends HTMLElement {
           ]),
         ),
       ),
+      d.metrics ? this.metricsCard(d.metrics) : null,
       renderExportCard(this.ctx),
       h(
         "section",
@@ -765,6 +766,26 @@ class SentinelPanel extends HTMLElement {
 
   private async renderSettingsView(): Promise<HTMLElement> {
     return h("div", { class: "stack" }, this.renderSettings(), await renderDataCard(this.ctx));
+  }
+
+  private metricsCard(m: NonNullable<Diagnostics["metrics"]>): HTMLElement {
+    const t = this.t;
+    const fmt = (v: number | null) => (v === null ? "—" : String(v));
+    return h(
+      "section",
+      { class: "card", "aria-labelledby": "h-met" },
+      h("h2", { id: "h-met" }, t("diag.metrics")),
+      h("p", { class: "muted" }, t("diag.metrics_hint")),
+      h(
+        "table",
+        {},
+        h("thead", {}, h("tr", {}, ["", "n", "p50", "p95", "p99", "max"].map((c) => h("th", { scope: "col" }, c)))),
+        h("tbody", {}, Object.entries(m.histograms).map(([name, x]) =>
+          h("tr", {}, h("th", { scope: "row" }, h("code", {}, `${name}`)), h("td", {}, String(x.count)),
+            h("td", {}, fmt(x.p50)), h("td", {}, fmt(x.p95)), h("td", {}, fmt(x.p99)), h("td", {}, fmt(x.max))))),
+      ),
+      h("p", { class: "muted" }, `${t("diag.queue_max")}: ${m.queue_depth_max}`),
+    );
   }
 
   private renderSettings(): HTMLElement {

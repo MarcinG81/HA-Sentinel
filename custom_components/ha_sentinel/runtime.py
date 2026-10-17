@@ -64,6 +64,7 @@ from .core.models import (
     new_uuid,
 )
 from .core.ratelimit import RateLimiter
+from .core.supervisor import Supervisor
 from .data_services import DataServices
 from .maintenance_services import MaintenanceService
 from .modules.correlation.correlator import ActiveFinding, ExistingIncident, correlate
@@ -150,6 +151,8 @@ class SentinelRuntime:
         self._doctor_deadline: int | None = None
         self._writer_task: asyncio.Task | None = None
         self._wake = asyncio.Event()
+        self._writer_resume = asyncio.Event()
+        self._supervisor = Supervisor()
         self._stopping = False
 
     # --- Lifecycle --------------------------------------------------------------
@@ -325,20 +328,24 @@ class SentinelRuntime:
         return reg is None or reg.platform != DOMAIN
 
     def _snapshot_states(self) -> None:
+        """Baseline of all current states in one synchronous pass (spec 4.1)."""
+        baseline: list[Observation] = []
         for state in self.hass.states.async_all():
             if not self._observed(state.entity_id):
                 continue
             uid = self._resolve_uid(state.entity_id)
             avail = availability_of(state)
             self._availability[state.entity_id] = avail
-            self._offer(self._make_obs(ObservationKind.STATE_SNAPSHOT, uid,
-                                       {"availability": str(avail)}, None))
+            baseline.append(self._make_obs(ObservationKind.STATE_SNAPSHOT, uid,
+                                           {"availability": str(avail)}, None))
             if (bat := battery_payload(state)) is not None:
-                self._offer(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, bat,
-                                           _dt_us(state.last_updated)))
+                baseline.append(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, bat,
+                                               _dt_us(state.last_updated)))
             if (upd := update_payload(state)) is not None:
-                self._offer(self._make_obs(ObservationKind.UPDATE_STATE, uid, upd,
-                                           _dt_us(state.last_changed)))
+                baseline.append(self._make_obs(ObservationKind.UPDATE_STATE, uid, upd,
+                                               _dt_us(state.last_changed)))
+        self.queues.replace_baseline(baseline)
+        self._wake.set()
 
     @callback
     def _on_state(self, event: Event[EventStateChangedData]) -> None:
@@ -403,13 +410,33 @@ class SentinelRuntime:
             try:
                 while await self._flush_once():
                     pass
-            except Exception:  # keep the writer alive; surface the state instead
+                if self.reason_code == "writer_failed":
+                    self.state, self.reason_code = ModuleState.READY, None  # recovered
+            except Exception:
                 _LOGGER.exception("Sentinel writer failed")
                 self.metrics.inc("module_failures_total", label="writer")
-                self.state = ModuleState.DEGRADED
-                self.reason_code = "writer_failed"
+                delay = self._supervisor.failed(self.clock.monotonic_ns())
+                if delay is None:
+                    # Five failures in ten minutes: stop retrying until an admin decides.
+                    self.state, self.reason_code = ModuleState.FAILED, "writer_paused"
+                    self.bump()
+                    await self._writer_resume.wait()
+                    self._writer_resume.clear()
+                    self.state, self.reason_code = ModuleState.READY, None
+                    continue
+                self.state, self.reason_code = ModuleState.DEGRADED, "writer_failed"
+                self.bump()
+                await asyncio.sleep(delay)
             if self._stopping:
                 return
+
+    def resume_writer(self) -> bool:
+        """Admin decision after the writer was paused (spec 4.3)."""
+        if self.reason_code != "writer_paused":
+            return False
+        self._supervisor.reset()
+        self._writer_resume.set()
+        return True
 
     async def async_flush(self) -> None:
         """Drain the queues now (unload paths and deterministic tests)."""
@@ -444,7 +471,8 @@ class SentinelRuntime:
         if drained.observations:
             self.metrics.observe("rules_duration_ms", (time.perf_counter() - t0) * 1000)
         await self._commit_findings(changed)
-        if drained.resync_required:
+        if drained.resync_required and not self.queues.baseline_pending:
+            # Resync only once the previous baseline is processed (no resync storms).
             self._availability.clear()
             self._snapshot_states()
         self._reschedule_doctor()

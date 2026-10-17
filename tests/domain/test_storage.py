@@ -179,3 +179,36 @@ async def test_returning_a_live_cursor_is_rejected_and_does_not_poison_commits(t
     await w.run(lambda c: repo.save_checkpoint(c, "x", "b", 1))
     assert await w.run(lambda c: repo.load_checkpoint(c, "x")) == ("b", 1)
     await w.async_close()
+
+
+def test_supervisor_backoff_and_pause():
+    import random
+
+    from custom_components.ha_sentinel.core.supervisor import Supervisor
+
+    sup = Supervisor(random.Random(1))
+    minute = 60 * 1_000_000_000
+    delays = [sup.failed(i * minute) for i in range(4)]
+    assert 4 <= delays[0] <= 6 and 12 <= delays[1] <= 18 and 48 <= delays[2] <= 72
+    assert sup.failed(4 * minute) is None  # fifth failure within 10 min pauses
+    sup.reset()
+    assert sup.failed(5 * minute) is not None
+    sup2 = Supervisor()
+    for i in range(4):
+        sup2.failed(i * 11 * minute)  # spread out: never five in a window
+    assert sup2.failed(44 * minute) is not None
+
+
+def test_baseline_never_overflows_live_queues():
+    q = IngestionQueues(FakeClock(), control_size=4, telemetry_size=4)
+    baseline = [_obs(ObservationKind.STATE_SNAPSHOT, {"availability": "available"}, i)
+                for i in range(50)]
+    q.replace_baseline(baseline)
+    assert q.depth == 0 and q.stats.dropped_total == 0  # not live traffic
+    q.offer(_obs(ObservationKind.AVAILABILITY_CHANGED, {"to": "unavailable"}, 99))
+    first = q.drain(limit=20)
+    assert [o.ingest_seq for o in first.observations][:20] == list(range(20))
+    assert not first.resync_required
+    q.replace_baseline(baseline[:5])  # a newer snapshot supersedes the remainder
+    rest = q.drain(limit=100)
+    assert len(rest.observations) == 5 + 1

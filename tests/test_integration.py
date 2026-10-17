@@ -65,6 +65,7 @@ WS_MUTATIONS_AND_LOOKUPS = [
     {"type": f"{DOMAIN}/maintenance/create", "scope_uid": "x", "minutes": 5, "reason": "r",
      "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/maintenance/cancel", "window_id": ANY_UUID, "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/modules/resume", "module": "writer", "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/resources/list"},
     {"type": f"{DOMAIN}/snapshots/list", "resource_id": ANY_UUID},
     {"type": f"{DOMAIN}/snapshots/get", "snapshot_id": ANY_UUID},

@@ -53,6 +53,10 @@ class IngestionQueues:
     ) -> None:
         self._clock = clock
         self._control: deque[tuple[Observation, int]] = deque()
+        # Baseline snapshot of current states (startup and resync). It is not live traffic,
+        # so it never counts against the bounded live queues: a large installation would
+        # otherwise overflow them on every start and trigger an endless resync loop.
+        self._baseline: deque[Observation] = deque()
         self._telemetry: deque[tuple[Observation, int]] = deque()
         self._control_size = control_size
         self._telemetry_size = telemetry_size
@@ -67,7 +71,17 @@ class IngestionQueues:
 
     @property
     def depth(self) -> int:
+        """Live queue depth (what the overload policy and degradation look at)."""
         return len(self._control) + len(self._telemetry)
+
+    @property
+    def baseline_pending(self) -> int:
+        return len(self._baseline)
+
+    def replace_baseline(self, observations: list[Observation]) -> None:
+        """A new snapshot supersedes any part of the previous one not yet processed."""
+        self._baseline = deque(observations)
+        self.stats.received_total += len(observations)
 
     @property
     def capacity(self) -> int:
@@ -117,6 +131,8 @@ class IngestionQueues:
     def drain(self, limit: int = WRITER_BATCH_SIZE) -> DrainResult:
         """Take a batch; control observations take priority over telemetry."""
         result = DrainResult()
+        while self._baseline and len(result.observations) < limit:
+            result.observations.append(self._baseline.popleft())
         while self._control and len(result.observations) < limit:
             obs, size = self._control.popleft()
             self._payload_bytes -= size
