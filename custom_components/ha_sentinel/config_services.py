@@ -22,6 +22,7 @@ from .const import DATA_DIR, DOMAIN
 from .core.clock import us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
 from .core.yaml_ast import parse
+from .modules.autopilot import draft as wizard
 from .modules.autopilot.lint import lint
 from .modules.autopilot.model import extract
 from .modules.config_history.canonical import canonical_hash, semantic_diff, textual_diff
@@ -232,6 +233,32 @@ class ConfigServices:
         return out
 
     # --- Autopilot lint ------------------------------------------------------------------
+
+    async def draft(self, spec: wizard.DraftSpec) -> dict[str, Any]:
+        """Wizard draft through the same parser and lint as an import (AC AUT 04)."""
+        reg: RegistrySnapshot = async_snapshot(self.hass, self.rt.inventory)
+        wizard.validate(spec, lambda eid: eid in reg.active_entity_ids)
+        complete = self.rt.state.value == "ready" and not self.rt.queues.degraded
+        text = wizard.to_yaml(wizard.build_tree(spec))
+
+        def run() -> dict[str, Any]:
+            parsed = parse(text)  # the draft is treated exactly like untrusted input
+            model = extract(parsed.tree, "automation")
+            report = lint(model, entity_status=reg.entity_status,
+                          service_exists=reg.service_exists, inventory_complete=complete)
+            findings = [f.as_dict(parsed) for f in report.findings]
+            return {
+                "yaml": text,
+                "completeness": round(report.completeness, 4),
+                "findings": findings,
+                "valid": not any(f["level"] == "error" for f in findings),
+                "inventory_complete": complete,
+            }
+
+        try:
+            return await asyncio.wait_for(self.hass.async_add_executor_job(run), LINT_TIMEOUT_S)
+        except TimeoutError as err:
+            raise SentinelError(ErrorCode.CANCELLED, "analysis exceeded 5 s") from err
 
     async def analyze(self, snapshot_id: str) -> dict[str, Any]:
         snap = await self.get_snapshot(snapshot_id)

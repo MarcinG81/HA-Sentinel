@@ -20,10 +20,11 @@ import type {
   SnapshotMeta,
   WsError,
 } from "./types.ts";
+import { renderDraftCard } from "./views_draft.ts";
 
 const shortHash = (hash: string | null) => (hash ? hash.replace("sha256:", "").slice(0, 10) : "—");
 
-function download(filename: string, text: string): void {
+export function download(filename: string, text: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: "text/yaml;charset=utf-8" }));
   const a = h("a", { href: url, download: filename }) as HTMLAnchorElement;
   document.body.appendChild(a);
@@ -32,7 +33,7 @@ function download(filename: string, text: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function codeBlock(text: string, highlight?: { from: number; to: number }, window_ = 4): HTMLElement {
+export function codeBlock(text: string, highlight?: { from: number; to: number }, window_ = 4): HTMLElement {
   const lines = text.split("\n");
   let start = 0;
   let end = lines.length;
@@ -316,10 +317,15 @@ export async function renderAutopilot(ctx: Ctx): Promise<HTMLElement> {
   const lintable = items.filter((r) => r.kind !== "sentinel_options");
   if (lintable.length === 0) {
     return h(
-      "section",
-      { class: "card center" },
-      h("p", {}, t("autopilot.empty")),
-      h("button", { class: "secondary", onclick: () => ctx.goto("history") }, t("autopilot.go_import")),
+      "div",
+      { class: "stack" },
+      h(
+        "section",
+        { class: "card center" },
+        h("p", {}, t("autopilot.empty")),
+        h("button", { class: "secondary", onclick: () => ctx.goto("history") }, t("autopilot.go_import")),
+      ),
+      renderDraftCard(ctx),
     );
   }
   const options: HTMLElement[] = [];
@@ -345,7 +351,7 @@ export async function renderAutopilot(ctx: Ctx): Promise<HTMLElement> {
     picker,
     h("p", { class: "muted" }, t("autopilot.scope")),
   );
-  if (!state.analyzeId) return h("div", { class: "stack" }, head);
+  if (!state.analyzeId) return h("div", { class: "stack" }, head, renderDraftCard(ctx));
 
   const [report, exp, caps] = await Promise.all([
     ctx.ws<LintReport>({ type: "ha_sentinel/autopilot/analyze", snapshot_id: state.analyzeId }),
@@ -380,10 +386,10 @@ export async function renderAutopilot(ctx: Ctx): Promise<HTMLElement> {
       : h("ul", { class: "list" }, sorted.map((f, i) => lintItem(ctx, f, i, exp.content, report.spans_available))),
   );
   const replay = exp.kind === "automation" ? renderReplayCard(ctx, state.analyzeId, replayOk) : null;
-  return h("div", { class: "stack" }, head, stats, findings, replay);
+  return h("div", { class: "stack" }, head, stats, findings, replay, renderDraftCard(ctx));
 }
 
-function lintMessage(ctx: Ctx, f: LintFinding): string {
+export function lintMessage(ctx: Ctx, f: LintFinding): string {
   let text = ctx.t(`lint.${f.message_key}`);
   for (const [k, v] of Object.entries(f.params)) {
     text = text.replaceAll(`{${k}}`, Array.isArray(v) ? v.join(" → ") : String(v));

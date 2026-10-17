@@ -165,7 +165,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G1 | Kontrakt heartbeat dla DOC005: deklaracja encji i okresu (API + UI), próg ręczny, T06 | 8.1, 8.4 | **zrobione** |
 | G2a | Komplet opcji 27.1: działające przełączniki modułów, `ingestion.allowed_domains`, `retention.incidents_days`, sekcje formularza | 27.1 | **zrobione** |
 | G2b | Źródła liczbowe: `ingestion.numeric_sampling` z wyborem encji i celu, ręczne mapowanie baterii (wspólna podstawa dla DOC008) | 5.1, 27.1 | **zrobione** |
-| G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | do zrobienia |
+| G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | **zrobione** |
 | G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | do zrobienia |
 
 ### R1 1.0 — braki
@@ -216,3 +216,10 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Sygnał wymaga `ingestion.numeric_sampling`. DOC008 (INFO, kara 0): dwie próbki poniżej progu w odstępie ≥ 30 min; powrót powyżej progu + 5% skali. Wartości porównywane tylko ze skalą danego źródła — RSSI i LQI nigdy ze sobą.
 - Usunięcie źródła zamyka wynikający z niego finding (`source_removed`), nie udaje powrotu do zdrowia.
 - Znaleziony błąd: `async_flush()` mógł wrócić, gdy writer w tle trzymał już pobraną partię, której Doctor jeszcze nie przetworzył. Partie są teraz serializowane blokadą.
+
+### G3 — decyzje
+
+- `autopilot/draft`: zakres kreatora MVP (11.1) — jeden trigger state / numeric_state, do 5 warunków state, 1–5 akcji `light.turn_on` / `light.turn_off` (tylko encje `light.*` istniejące w HA), tryb, cooldown (tylko z `single`, jako `delay` na końcu). Nieznane pola żądania odrzucane.
+- Szkic jest budowany jako drzewo, serializowany do YAML i przepuszczany przez ten sam bezpieczny parser, ekstrakcję i lint co import (AC AUT 04, test porównuje wyniki obu ścieżek). Deterministyczne `id` z treści.
+- Wynik = eksport YAML albo zapis jako importowany snapshot. Kreator nic nie instaluje w HA i nie wywołuje usług (test ze spy).
+- Panel: czytelne komunikaty błędów walidacji (nieznana encja, zakres, pole), nie ogólne „operacja nie powiodła się”.

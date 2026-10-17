@@ -701,9 +701,28 @@ class SentinelPanel extends HTMLElement {
   }
 
   private errorText(err: WsError): string {
-    if (err?.code === "conflict") return this.t("err.conflict");
-    if (err?.code === "rate_limited") return this.t("err.rate_limited");
-    return this.t("err.generic");
+    const t = this.t;
+    const d = err?.details ?? {};
+    switch (err?.code) {
+      case "conflict":
+        return t("err.conflict");
+      case "rate_limited":
+        return t("err.rate_limited");
+      case "not_found":
+        return t("err.not_found");
+      case "storage_unavailable":
+        return t("err.storage");
+      case "validation_failed":
+        if (d.entity_id) return t("err.unknown_entity").replace("{entity}", d.entity_id);
+        if (d.param && d.min !== undefined && d.max !== undefined) {
+          return t("err.range").replace("{param}", d.param).replace("{min}", String(d.min)).replace("{max}", String(d.max));
+        }
+        return d.param ? t("err.invalid_field").replace("{param}", d.param) : t("err.generic");
+      case "unsupported_capability":
+        return d.reason ? `${t("err.unsupported")} (${d.reason})` : t("err.unsupported");
+      default:
+        return t("err.generic");
+    }
   }
 
   private toast(text: string): void {

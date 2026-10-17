@@ -27,6 +27,7 @@ from .core.clock import datetime_to_us, us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
 from .core.models import CapabilityStatus, ModuleState, is_uuid4, new_uuid
 from .core.ratelimit import RequestClass
+from .modules.autopilot.draft import DraftSpec
 from .modules.doctor.overrides import PARAM_RANGES
 from .repositories import history, jobs
 from .repositories import repository as repo
@@ -100,6 +101,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_numeric_list,
         ws_numeric_set,
         ws_numeric_delete,
+        ws_autopilot_draft,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -607,6 +609,45 @@ async def ws_snapshots_diff(hass, connection, msg, runtime) -> None:
 async def ws_autopilot_analyze(hass, connection, msg, runtime) -> None:
     """Static lint only; never calls HA services and never executes templates (AC AUT 03)."""
     connection.send_result(msg["id"], await _config(runtime).analyze(msg["snapshot_id"]))
+
+
+_ENTITY_ID = vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"), vol.Length(max=255))
+_DRAFT_VALUE = vol.All(str, vol.Length(max=100))
+_DRAFT_SCHEMA = {
+    vol.Required("alias"): vol.All(str, vol.Length(min=1, max=100)),
+    vol.Required("trigger"): vol.Schema({
+        vol.Required("platform"): vol.In(["state", "numeric_state"]),
+        vol.Required("entity_id"): _ENTITY_ID,
+        vol.Optional("from"): _DRAFT_VALUE,
+        vol.Optional("to"): _DRAFT_VALUE,
+        vol.Optional("above"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("below"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("for_s", default=0): vol.All(int, vol.Range(min=0, max=86_400)),
+    }),
+    vol.Optional("conditions", default=[]): [vol.Schema({
+        vol.Required("entity_id"): _ENTITY_ID,
+        vol.Required("state"): vol.All(str, vol.Length(min=1, max=100)),
+    })],
+    vol.Required("actions"): [vol.Schema({
+        vol.Required("service"): vol.In(["light.turn_on", "light.turn_off"]),
+        vol.Required("entity_ids"): [_ENTITY_ID],
+        vol.Optional("brightness_pct"): vol.Any(None, vol.All(int, vol.Range(min=1, max=100))),
+    })],
+    vol.Optional("mode", default="single"): vol.In(["single", "restart", "queued", "parallel"]),
+    vol.Optional("cooldown_s", default=0): vol.All(int, vol.Range(min=0, max=3600)),
+}
+
+
+@websocket_api.websocket_command(_schema("autopilot/draft") | _DRAFT_SCHEMA)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_autopilot_draft(hass, connection, msg, runtime) -> None:
+    """MVP wizard: YAML draft plus lint; nothing is written to HA (spec 11.1)."""
+    spec = DraftSpec(alias=msg["alias"], trigger=msg["trigger"], actions=msg["actions"],
+                     conditions=msg["conditions"], mode=msg["mode"],
+                     cooldown_s=msg["cooldown_s"])
+    connection.send_result(msg["id"], await _config(runtime).draft(spec))
 
 
 @websocket_api.websocket_command(

@@ -268,7 +268,7 @@ export interface GraphSearch {
 export interface WsError {
   code?: string;
   message?: string;
-  details?: { reason?: string; module?: string; line?: number | null; paths?: string[] };
+  details?: { reason?: string; module?: string; line?: number | null; paths?: string[]; param?: string; entity_id?: string; min?: number; max?: number };
 }
 
 // --- B23: export, jobs, data management -------------------------------------------------
