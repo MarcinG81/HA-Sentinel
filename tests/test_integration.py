@@ -60,6 +60,7 @@ WS_MUTATIONS_AND_LOOKUPS = [
     {"type": f"{DOMAIN}/network/targets/update", "target_id": ANY_UUID, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/network/targets/delete", "target_id": ANY_UUID, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/network/scan", "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/autopilot/replay", "snapshot_id": ANY_UUID},
     {"type": f"{DOMAIN}/resources/list"},
     {"type": f"{DOMAIN}/snapshots/list", "resource_id": ANY_UUID},
     {"type": f"{DOMAIN}/snapshots/get", "snapshot_id": ANY_UUID},

@@ -88,6 +88,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_network_targets_update,
         ws_network_targets_delete,
         ws_network_scan,
+        ws_autopilot_replay,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -918,3 +919,19 @@ async def ws_network_scan(hass, connection, msg, runtime) -> None:
     result = await _network(runtime).start_scan(
         msg["request_key"], _request_hash(msg), connection.user.id, msg.get("target_ids"))
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("autopilot/replay")
+    | {vol.Required("snapshot_id"): _uuid,
+       vol.Optional("hours", default=6): vol.All(int, vol.Range(min=1, max=24))}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_autopilot_replay(hass, connection, msg, runtime) -> None:
+    """Replay recorded state changes through the stored automation AST (spec 11.4).
+
+    Never calls automation.trigger or any other service (AC AUT 03, T10)."""
+    connection.send_result(msg["id"], await _config(runtime).replay(msg["snapshot_id"],
+                                                                    msg["hours"]))

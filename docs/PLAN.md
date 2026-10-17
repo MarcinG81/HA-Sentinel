@@ -17,7 +17,7 @@
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
-| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19, B20, B21, B23 zrobione; retencja/purge (REQ10) zrobione |
+| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19–B23 zrobione; retencja/purge (REQ10) zrobione; B24 w toku |
 | E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
 
 ## Krytyczna ścieżka MVP
@@ -111,3 +111,10 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - RCA: endpoint może być ręcznie powiązany z urządzeniem (`device → endpoint`, `depends_on`, provenance manual); nieosiągalny endpoint = dowód bezpośredni E=1.
 - Collector N2, skan CIDR i adaptery routerów — R2 (osobny pakiet).
 - Znalezione na żywym HA: własny walidator w schemacie formularza opcji psuł serializację (HTTP 500) — walidacja CIDR przeniesiona do kroku flow; dodany test flow opcji przez HTTP API.
+
+## E4 / B22 — ograniczony replay
+
+- Interpreter czysty, logika trójwartościowa (true / false / unknown). Obsługiwane: triggery `state` (from/to) i `numeric_state` (przejście progu), warunki `state` / `numeric_state` / and / or / not, `if`, `choose`, akcje-warunki. `delay`, `wait_*`, `repeat`, `parallel`, `for:`, atrybuty i szablony → unsupported z JSON Pointer; plan akcji zatrzymuje się w tym miejscu.
+- Historia z Recordera (`get_significant_states`, adapter klasy A: brak recordera → `recorder_unavailable`, zmiana sygnatury → `history_contract`); limity 50 encji, okno ≤ 24 h, ≤ 10 000 zdarzeń, timeout 5 s.
+- Raport: okno, liczba zdarzeń, encje bez stanu początkowego, obsługiwane / wszystkie triggery, wersja interpretera, lista nieodtworzonych fragmentów. Planowane akcje nie zmieniają kolejnych stanów (brak modelu urządzeń).
+- T10: test z prawdziwym Recorderem i szpiegiem `call_service` — zero wywołań usług.

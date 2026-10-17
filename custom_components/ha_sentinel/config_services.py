@@ -189,6 +189,46 @@ class ConfigServices:
 
         return await self.hass.async_add_executor_job(compute)
 
+    # --- Replay (spec 11.4) -------------------------------------------------------------
+
+    async def replay(self, snapshot_id: str, hours: int) -> dict[str, Any]:
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from .adapters import history as ha_history
+        from .modules.autopilot.replay import replay as run_replay
+
+        snap = await self.get_snapshot(snapshot_id)
+        if snap["kind"] != "automation":
+            raise SentinelError(ErrorCode.INVALID_REQUEST, "only automations can be replayed")
+        model = await self.hass.async_add_executor_job(extract, snap["tree"], "automation")
+        entities = sorted({r.value for run in model.runnables for r in run.refs
+                           if r.kind == "entity" and r.role in ("trigger", "condition")})
+        end = dt_util.utcnow()
+        start = end - timedelta(hours=hours)
+        initial, events, truncated = await ha_history.fetch(self.hass, entities, start, end)
+        tree = snap["tree"]
+        try:
+            report = await asyncio.wait_for(
+                self.hass.async_add_executor_job(lambda: run_replay(tree, initial, events)),
+                LINT_TIMEOUT_S)
+        except TimeoutError as err:
+            raise SentinelError(ErrorCode.CANCELLED, "replay exceeded 5 s") from err
+        out = report.as_dict()
+        for occ in out["occurrences"]:
+            occ["time"] = us_to_rfc3339(occ.pop("time_us"))
+        out.update({
+            "snapshot_id": snapshot_id,
+            "window": {"start": us_to_rfc3339(int(start.timestamp() * 1_000_000)),
+                       "end": us_to_rfc3339(int(end.timestamp() * 1_000_000))},
+            "entities": entities,
+            "events": len(events),
+            "events_truncated": truncated,
+            "source": "recorder",
+        })
+        return out
+
     # --- Autopilot lint ------------------------------------------------------------------
 
     async def analyze(self, snapshot_id: str) -> dict[str, Any]:

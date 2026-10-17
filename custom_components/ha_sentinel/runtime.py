@@ -242,7 +242,11 @@ class SentinelRuntime:
         caps = [
             Capability("inventory.read", CapabilityStatus.SUPPORTED),
             Capability("states.live", CapabilityStatus.SUPPORTED),
-            Capability("history.read", CapabilityStatus.UNSUPPORTED, "not_implemented"),
+            Capability("history.read", CapabilityStatus.SUPPORTED
+                       if "recorder" in self.hass.config.components
+                       else CapabilityStatus.UNAVAILABLE,
+                       None if "recorder" in self.hass.config.components
+                       else "recorder_unavailable"),
             Capability("automation.import", CapabilityStatus.SUPPORTED
                        if mode is DbMode.READ_WRITE else CapabilityStatus.UNAVAILABLE,
                        None if mode is DbMode.READ_WRITE else "storage_read_only"),
@@ -250,7 +254,11 @@ class SentinelRuntime:
             Capability("graph.read", CapabilityStatus.SUPPORTED),
             Capability("automation.trace_import", CapabilityStatus.UNSUPPORTED,
                        "not_implemented"),
-            Capability("automation.replay", CapabilityStatus.DISABLED, "release_r1"),
+            Capability("automation.replay", CapabilityStatus.SUPPORTED
+                       if "recorder" in self.hass.config.components
+                       else CapabilityStatus.UNAVAILABLE,
+                       None if "recorder" in self.hass.config.components
+                       else "recorder_unavailable"),
             Capability("managed_yaml.restore", CapabilityStatus.DISABLED, "release_r1"),
             Capability("network.probe", CapabilityStatus.DISABLED, "n0_only"),
             Capability("ai.explain", CapabilityStatus.DISABLED, "ai_disabled"),

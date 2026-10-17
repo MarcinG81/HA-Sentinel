@@ -5,6 +5,7 @@
 import type { Ctx } from "./ctx.ts";
 import { h, uuid4 } from "./dom.ts";
 import { contentHash } from "./sha256.ts";
+import { renderReplayCard } from "./views_replay.ts";
 import { managedCapability, openRestorePreview, renderRegisterCard, renderRestorePreview, syncManaged } from "./views_restore.ts";
 import type {
   DiffResult,
@@ -346,10 +347,12 @@ export async function renderAutopilot(ctx: Ctx): Promise<HTMLElement> {
   );
   if (!state.analyzeId) return h("div", { class: "stack" }, head);
 
-  const [report, exp] = await Promise.all([
+  const [report, exp, caps] = await Promise.all([
     ctx.ws<LintReport>({ type: "ha_sentinel/autopilot/analyze", snapshot_id: state.analyzeId }),
     ctx.ws<ExportText>({ type: "ha_sentinel/snapshots/get", snapshot_id: state.analyzeId }),
+    ctx.ws<{ capabilities: { capability_id: string; status: string }[] }>({ type: "ha_sentinel/capabilities" }),
   ]);
+  const replayOk = caps.capabilities.some((c) => c.capability_id === "automation.replay" && c.status === "supported");
   const pct = Math.round(report.completeness * 100);
   const counts = LEVEL_ORDER.map((lvl) => [lvl, report.findings.filter((f) => f.level === lvl).length] as const).filter(([, n]) => n > 0);
   const stats = h(
@@ -376,7 +379,8 @@ export async function renderAutopilot(ctx: Ctx): Promise<HTMLElement> {
       ? h("p", { class: "muted" }, t("autopilot.clean_hint"))
       : h("ul", { class: "list" }, sorted.map((f, i) => lintItem(ctx, f, i, exp.content, report.spans_available))),
   );
-  return h("div", { class: "stack" }, head, stats, findings);
+  const replay = exp.kind === "automation" ? renderReplayCard(ctx, state.analyzeId, replayOk) : null;
+  return h("div", { class: "stack" }, head, stats, findings, replay);
 }
 
 function lintMessage(ctx: Ctx, f: LintFinding): string {

@@ -4,14 +4,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
-    """Allow HA to load custom_components/ha_sentinel in integration tests."""
-    yield
-
-
-@pytest.fixture(autouse=True)
-def isolated_config_dir(request, tmp_path):
-    """Give every HA test its own config dir so sentinel.db never leaks between tests."""
+def sentinel_test_env(request, tmp_path):
+    """Order matters: HA requires the recorder fixture before hass is created."""
+    if "recorder_mock" in request.fixturenames:
+        request.getfixturevalue("recorder_mock")
     if "hass" in request.fixturenames:
+        # Allow HA to load custom_components/ha_sentinel in integration tests.
+        request.getfixturevalue("enable_custom_integrations")
+        # Every HA test gets its own config dir so sentinel.db never leaks between tests.
         request.getfixturevalue("hass").config.config_dir = str(tmp_path)
     yield
