@@ -26,6 +26,10 @@ export const DATA = {
     findings: [{ id: "f1", rule_id: "DOC001", rule_version: 1, status: "active", severity: "high", confidence: 1, coverage: "complete",
       subject: subject("MQTT 1", "sensor.mqtt_1"), first_seen: "2026-10-17T09:42:03Z", last_seen: "2026-10-17T09:42:03Z", resolved_at: null,
       evidence: [{ kind: "availability.changed", received_at: "2026-10-17T09:42:03Z", occurred_at: "2026-10-17T09:42:03Z", payload: { from: "available", to: "unavailable" }, evidence_expired: false }] }] },
+  "ha_sentinel/rules/list": { items: [
+    { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, enabled: true, params: { period_s: 300 } },
+    { id: "r2", rule_id: "DOC001", subject_uid: "u2", subject_label: null, subject_deleted: true, enabled: false, params: {} }],
+    ranges: { DOC001: { unavailable_s: [30, 3600] }, DOC002: { unknown_s: [60, 86400] }, DOC003: { flap_threshold: [2, 100] }, DOC004: { low_pct: [1, 99], clear_pct: [2, 100] }, DOC005: { period_s: [10, 86400], threshold_s: [0, 604800] }, DOC009: {} } },
   "ha_sentinel/maintenance/list": { items: [{ id: "w1", scope_kind: "device", scope_id: "device:x", label: "Gniazdko", reason: "wymiana", start: "2026-10-17T09:00:00Z", end: "2026-10-17T11:00:00Z", active: true }] },
   "ha_sentinel/resources/list": { items: [{ id: "r1", provider: "managed", kind: "automation", label: "automations (managed)", write_policy: "managed_write", snapshots: 3, updated_at: "2026-10-17T09:00:00Z" }] },
   "ha_sentinel/snapshots/list": { items: [] },

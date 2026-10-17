@@ -123,6 +123,7 @@ select, input[type=text] {
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--primary-text-color); color: var(--primary-background-color); padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: calc(100vw - 32px); z-index: 5; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .grid2 { display: grid; gap: 12px; grid-template-columns: 2fr 1fr; }
+.span2 { grid-column: 1 / -1; }
 .grow { flex: 1; min-width: 0; }
 .check { display: flex; align-items: center; gap: 8px; color: var(--primary-text-color); margin: 12px 0 0; }
 .check select { width: auto; }

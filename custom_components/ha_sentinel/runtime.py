@@ -18,10 +18,22 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    EventStateReportedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_point_in_utc_time, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
+    async_track_state_report_event,
+    async_track_time_interval,
+)
 
 from .adapters.evidence import EvidenceCollector
 from .adapters.ha_states import (
@@ -39,6 +51,7 @@ from .const import (
     DB_FILENAME,
     DEFAULT_OPTIONS,
     DOMAIN,
+    HEARTBEAT_MIN_INTERVAL_S,
     OPT_DOCTOR_STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S,
     SENSOR_THROTTLE_S,
@@ -76,6 +89,7 @@ from .notification_services import NotificationService
 from .repairs import async_update_storage_issue
 from .repositories import repository as repo
 from .repositories.db import DatabaseWorker, DbMode, UnsupportedSchemaError
+from .rules_services import RuleService
 
 _LOGGER = logging.getLogger(__name__)
 SIGNAL_UPDATED = f"{DOMAIN}_updated"
@@ -118,6 +132,7 @@ class SentinelRuntime:
         self.inventory = Inventory(self.boot_id)
         self.coverage = CoverageTracker(monitoring_since_us=self.started_us)
         self.maintenance = MaintenanceService(self)
+        self.rules = RuleService(self)
         self.doctor = DoctorEngine(
             boot_started_us=self.started_us,
             params=self.doctor_params,
@@ -155,6 +170,10 @@ class SentinelRuntime:
         self._writer_resume = asyncio.Event()
         self._supervisor = Supervisor()
         self._stopping = False
+        # DOC005 contracts: entity_id -> uid, last emitted heartbeat, state_reported tracker.
+        self._heartbeat_aliases: dict[str, str] = {}
+        self._heartbeat_last_us: dict[str, int] = {}
+        self._heartbeat_unsub: CALLBACK_TYPE | None = None
 
     # --- Lifecycle --------------------------------------------------------------
 
@@ -173,6 +192,9 @@ class SentinelRuntime:
         self.inventory.load(entities, devices)
         await self.maintenance.async_load()
         self.doctor.restore(await self.db.run(repo.load_active_findings))
+        await self.rules.async_load()
+        closed_by_overrides = self.doctor.set_overrides(self.rules.overrides,
+                                                        self.clock.now_us())
         last_us = await self.db.run(repo.last_observation_us)
         self.active_incidents = await self.db.run(repo.count_active_incidents)
 
@@ -194,7 +216,8 @@ class SentinelRuntime:
         # Process the baseline now so stale findings (subjects gone since the last boot,
         # revised rules) are closed explicitly before anything else is correlated.
         await self.async_flush()
-        if stale := self.doctor.retire_stale(snapshot_done_us):
+        self.refresh_heartbeat_tracking()
+        if stale := [*self.doctor.retire_stale(snapshot_done_us), *closed_by_overrides]:
             await self._commit_findings(stale)
         self._writer_task = self.entry.async_create_background_task(
             self.hass, self._writer_loop(), f"{DOMAIN}_writer"
@@ -236,6 +259,9 @@ class SentinelRuntime:
     async def async_stop(self) -> None:
         self.state = ModuleState.STOPPING
         self._stopping = True
+        if self._heartbeat_unsub is not None:
+            self._heartbeat_unsub()
+            self._heartbeat_unsub = None
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -368,6 +394,8 @@ class SentinelRuntime:
         new_state = event.data["new_state"]
         if new_state is None or not self._observed(entity_id):
             return
+        if entity_id in self._heartbeat_aliases:
+            self._heartbeat(entity_id, new_state)
         avail = availability_of(new_state)
         prev = self._availability.get(entity_id)
         bat = battery_payload(new_state)
@@ -391,8 +419,54 @@ class SentinelRuntime:
                                        _dt_us(new_state.last_updated)))
 
     @callback
+    def refresh_heartbeat_tracking(self) -> None:
+        """(Re)subscribe to state reports of subjects with a heartbeat contract.
+
+        A sensor that reports the same value again fires state_reported, not
+        state_changed; both count as a report. Only contracted entities are tracked.
+        """
+        aliases = {}
+        for uid in self.doctor.heartbeat_subjects:
+            ent = self.inventory.get(uid)
+            if ent is not None and ent.deleted_at_us is None:
+                aliases[ent.current_alias] = uid
+        if aliases == self._heartbeat_aliases and (self._heartbeat_unsub or not aliases):
+            return
+        if self._heartbeat_unsub is not None:
+            self._heartbeat_unsub()
+            self._heartbeat_unsub = None
+        self._heartbeat_aliases = aliases
+        if aliases:
+            self._heartbeat_unsub = async_track_state_report_event(
+                self.hass, list(aliases), self._on_state_reported)
+
+    @callback
+    def _on_state_reported(self, event: Event[EventStateReportedData]) -> None:
+        entity_id = event.data["entity_id"]
+        if entity_id in self._heartbeat_aliases:
+            self._heartbeat(entity_id, event.data["new_state"])
+
+    def _heartbeat(self, entity_id: str, state: State) -> None:
+        if availability_of(state) is not Availability.AVAILABLE:
+            return  # an unavailable entity has not reported
+        uid = self._heartbeat_aliases[entity_id]
+        now = self.clock.now_us()
+        # At most one stored heartbeat per HEARTBEAT_MIN_INTERVAL_S: the contract
+        # deadline is at least 3 periods away, so nothing is lost by throttling.
+        if now - self._heartbeat_last_us.get(uid, 0) < HEARTBEAT_MIN_INTERVAL_S * 1_000_000:
+            return
+        self._heartbeat_last_us[uid] = now
+        self._offer(self._make_obs(ObservationKind.HEARTBEAT, uid, {},
+                                   _dt_us(state.last_reported)))
+
+    async def commit_findings(self, findings: list[Finding]) -> None:
+        await self._commit_findings(findings)
+
+    @callback
     def _on_registry(self, event: Event[er.EventEntityRegistryUpdatedData]) -> None:
         if event.data["action"] != "remove":
+            if event.data["action"] == "update" and "old_entity_id" in event.data:
+                self.refresh_heartbeat_tracking()  # renamed: follow the new alias
             return  # renames are resolved through the stable registry id
         uid = self.inventory.uid_for_alias(event.data["entity_id"])
         if uid and (change := self.inventory.remove(uid, self.clock.now_us())):

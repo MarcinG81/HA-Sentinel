@@ -25,10 +25,14 @@ WS_COMMANDS = [
     {"type": f"{DOMAIN}/capabilities"},
     {"type": f"{DOMAIN}/overview"},
     {"type": f"{DOMAIN}/diagnostics"},
+    {"type": f"{DOMAIN}/rules/list"},
     {"type": f"{DOMAIN}/incidents/list"},
     {"type": f"{DOMAIN}/subscribe"},
 ]
 WS_MUTATIONS_AND_LOOKUPS = [
+    {"type": f"{DOMAIN}/rules/set", "rule_id": "DOC001", "subject_uid": "x", "enabled": False,
+     "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/rules/delete", "override_id": ANY_UUID, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/incidents/get", "incident_id": ANY_UUID},
     {"type": f"{DOMAIN}/incidents/ack", "incident_id": ANY_UUID, "expected_revision": 1,
      "request_key": ANY_UUID},

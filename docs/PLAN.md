@@ -162,7 +162,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 
 | # | Pakiet | Rozdział | Status |
 |---|---|---|---|
-| G1 | Kontrakt heartbeat dla DOC005: deklaracja encji i okresu (API + UI), próg ręczny, T06 | 8.1, 8.4 | do zrobienia |
+| G1 | Kontrakt heartbeat dla DOC005: deklaracja encji i okresu (API + UI), próg ręczny, T06 | 8.1, 8.4 | **zrobione** |
 | G2 | Opcje `ingestion.allowed_domains` i `ingestion.numeric_sampling` (wybór encji), ręczne mapowanie baterii | 5.1, 27.1 | do zrobienia |
 | G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | do zrobienia |
 | G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | do zrobienia |
@@ -171,7 +171,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 
 | # | Pakiet | Rozdział | Status |
 |---|---|---|---|
-| G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | do zrobienia |
+| G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | nadpisania **zrobione** (z G1); zostały wagi jednostek |
 | G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | do zrobienia |
 | G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | do zrobienia |
 | G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | do zrobienia |
@@ -192,3 +192,10 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 ### R2 — świadomie poza zakresem
 
 AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan CIDR, analiza logów.
+
+### G1 — decyzje
+
+- Kontrakt heartbeat = włączone nadpisanie DOC005 dla encji (`period_s`, opcjonalny `threshold_s`); tabela `rule_overrides` (migracja v7), audyt, rosnący `policy_revision`. Nadpisanie zostaje przy UID po usunięciu encji (tombstone).
+- Raport = `state_changed` albo `state_reported` (ta sama wartość) w stanie dostępnym; śledzone tylko encje z kontraktem (`async_track_state_report_event`), zapis co najwyżej raz na 5 s. Niedostępność nie jest raportem — wcześniej przejście do `unavailable` błędnie odnawiało heartbeat.
+- Nadpisania: DOC001 `unavailable_s`, DOC002 `unknown_s`, DOC003 `flap_threshold`, DOC004 `low_pct`/`clear_pct`, `enabled` dla DOC001–005 i DOC009. Wyłączenie reguły zamyka aktywny finding z powodem `rule_disabled`; trwające liczniki czasu zachowują stary próg.
+- Środowisko dev: lokalne HA na Pythonie 3.14 nie ma natywnego `pymicro_vad` (assist pipeline), przez co frontend HA wisiał na `get_services`. Do testów na żywo atrapy modułów w `PYTHONPATH`; kod Sentinel bez zmian.

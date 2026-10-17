@@ -1,4 +1,4 @@
-"""Doctor: rules DOC001-DOC005 (spec 8). Pure logic, no HA imports.
+"""Doctor: rules DOC001-DOC005 and DOC009 (spec 8). Pure logic, no HA imports.
 
 The engine consumes observations (`process`) and wakes up on deadlines (`tick`). It
 returns findings whose status changed to ACTIVE or RESOLVED; PENDING lives only in
@@ -36,6 +36,7 @@ from ...core.models import (
     Severity,
     new_uuid,
 )
+from .overrides import RuleOverride, heartbeat_contracts
 
 S = 1_000_000  # microseconds per second
 
@@ -108,9 +109,11 @@ class DoctorEngine:
         self._entities: dict[str, _EntityState] = {}
         self._findings: dict[str, Finding] = {}  # fingerprint -> pending/active
         self._heap: list[tuple[int, int, str, str, int]] = []
+        self._overrides: dict[tuple[str, str], RuleOverride] = {}
+        self._heartbeats: dict[str, tuple[int, int]] = dict(self.params.heartbeats)
         self._seq = itertools.count()
         self.flap_partial: set[str] = set()  # subjects whose DOC003 window is incomplete
-        for uid in self.params.heartbeats:
+        for uid in self._heartbeats:
             self._schedule_heartbeat(uid, boot_started_us)
 
     # --- Public API -------------------------------------------------------
@@ -153,6 +156,40 @@ class DoctorEngine:
             out.append(f)
         return out
 
+    def set_overrides(self, overrides: list[RuleOverride], now_us: int) -> list[Finding]:
+        """Replace per-object overrides; returns findings closed by the change.
+
+        A disabled rule closes its active finding ("rule_disabled"); a removed heartbeat
+        contract closes DOC005. Timers already running keep their old threshold.
+        """
+        self._overrides = {o.key: o for o in overrides}
+        contracts = {**self.params.heartbeats, **heartbeat_contracts(self._overrides)}
+        out: list[Finding] = []
+        for uid in set(self._heartbeats) - set(contracts):
+            if (st := self._entities.get(uid)) is not None:
+                st.heartbeat_token += 1
+            out += self._resolve("DOC005", uid, now_us, reason="contract_removed")
+        added = [uid for uid, c in contracts.items() if self._heartbeats.get(uid) != c]
+        self._heartbeats = contracts
+        for uid in added:
+            self._schedule_heartbeat(uid, now_us)
+        for (rule, uid), o in self._overrides.items():
+            if not o.enabled:
+                out += self._resolve(rule, uid, now_us, reason="rule_disabled")
+        return out
+
+    @property
+    def heartbeat_subjects(self) -> frozenset[str]:
+        return frozenset(self._heartbeats)
+
+    def _param(self, rule: str, uid: str, key: str, default: float) -> float:
+        o = self._overrides.get((rule, uid))
+        return o.params.get(key, default) if o is not None else default
+
+    def _enabled(self, rule: str, uid: str) -> bool:
+        o = self._overrides.get((rule, uid))
+        return o is None or o.enabled
+
     def availability_snapshot(self) -> dict[str, Availability]:
         """Current availability of every subject seen in this boot (for correlation)."""
         return {uid: st.availability for uid, st in self._entities.items()
@@ -168,9 +205,16 @@ class DoctorEngine:
             return self._on_numeric(obs)
         if obs.kind is ObservationKind.UPDATE_STATE:
             return self._on_update(obs)
+        if obs.kind is ObservationKind.HEARTBEAT:
+            if obs.subject_uid in self._heartbeats:
+                return self._heartbeat_seen(obs)
+            return []
         if obs.kind in (ObservationKind.AVAILABILITY_CHANGED, ObservationKind.STATE_SNAPSHOT):
             out = self._on_availability(obs)
-            if obs.subject_uid in self.params.heartbeats:
+            raw = obs.payload.get("availability" if obs.kind is ObservationKind.STATE_SNAPSHOT
+                                  else "to")
+            # An entity that turns unavailable has not reported: no heartbeat.
+            if obs.subject_uid in self._heartbeats and raw == Availability.AVAILABLE:
                 out += self._heartbeat_seen(obs)
             return out
         return []
@@ -181,7 +225,8 @@ class DoctorEngine:
             deadline, _, uid, action, token = heapq.heappop(self._heap)
             st = self._entities.get(uid)
             if action == "heartbeat":
-                if st is not None and st.heartbeat_token != token:
+                if uid not in self._heartbeats or (st is not None
+                                                   and st.heartbeat_token != token):
                     continue
                 out += self._raise("DOC005", uid, deadline, None, CoverageStatus.COMPLETE)
                 continue
@@ -233,7 +278,8 @@ class DoctorEngine:
                 del self._findings[f.fingerprint]
 
         if new is Availability.UNAVAILABLE:
-            self._push(max(st.since_us + self.params.unavailable_s * S, self._grace_end_us),
+            limit = self._param("DOC001", uid, "unavailable_s", self.params.unavailable_s)
+            self._push(max(st.since_us + int(limit * S), self._grace_end_us),
                        uid, "mature_unavailable", st.token)
             if not is_snapshot and prev is not None:
                 out += self._record_flap_entry(uid, st, st.since_us)
@@ -242,7 +288,8 @@ class DoctorEngine:
             # baseline (never set, stateless) is not evidence that something stopped.
             if prev is not None and not is_snapshot \
                     and self._domain_of(uid) not in STATELESS_DOMAINS:
-                self._push(max(st.since_us + self.params.unknown_s * S, self._grace_end_us),
+                limit = self._param("DOC002", uid, "unknown_s", self.params.unknown_s)
+                self._push(max(st.since_us + int(limit * S), self._grace_end_us),
                            uid, "mature_unknown", st.token)
         else:
             if self._has_active(uid, ("DOC001", "DOC002")):
@@ -274,7 +321,7 @@ class DoctorEngine:
             st.flap_token += 1
             self._push(st.flap_entries[0] + window_s, uid, "flap_reeval", st.flap_token)
         fp = f"DOC003:{uid}"
-        if count >= self.params.flap_threshold:
+        if count >= self._param("DOC003", uid, "flap_threshold", self.params.flap_threshold):
             if not self._coverage_complete(window_start, now_us):
                 # Gap inside the window: result is partial, count is not reliable (AC DOC 02, T05).
                 self.flap_partial.add(uid)
@@ -302,11 +349,11 @@ class DoctorEngine:
         now = obs.occurred_at_us or obs.received_at_us
         active = self._has_active(uid, ("DOC004",))
         if active:
-            if value > self.params.battery_clear_pct:
+            if value > self._param("DOC004", uid, "clear_pct", self.params.battery_clear_pct):
                 st.battery_low_since_us = None
                 return self._resolve("DOC004", uid, now)
             return []
-        if value < self.params.battery_low_pct:
+        if value < self._param("DOC004", uid, "low_pct", self.params.battery_low_pct):
             if st.battery_low_since_us is None:
                 st.battery_low_since_us = now
                 st.battery_low_obs_id = obs.id
@@ -333,7 +380,7 @@ class DoctorEngine:
     # --- Heartbeat: DOC005 -------------------------------------------------------
 
     def _schedule_heartbeat(self, uid: str, from_us: int) -> None:
-        period, manual = self.params.heartbeats[uid]
+        period, manual = self._heartbeats[uid]
         st = self._entities.setdefault(uid, _EntityState())
         st.heartbeat_token += 1
         deadline = max(from_us + max(3 * period, manual) * S, self._grace_end_us)
@@ -368,6 +415,8 @@ class DoctorEngine:
         details: dict | None = None,
         extra_evidence: str | None = None,
     ) -> list[Finding]:
+        if not self._enabled(rule, uid):
+            return []
         fp = f"{rule}:{uid}"
         existing = self._findings.get(fp)
         if existing is not None and existing.status is FindingStatus.ACTIVE:
@@ -389,12 +438,19 @@ class DoctorEngine:
         self._findings[fp] = f
         return [f]
 
-    def _resolve(self, rule: str, uid: str, at_us: int) -> list[Finding]:
+    def _resolve(self, rule: str, uid: str, at_us: int, *,
+                 reason: str | None = None) -> list[Finding]:
         f = self._findings.get(f"{rule}:{uid}")
-        if f is None or f.status is not FindingStatus.ACTIVE:
+        if f is None:
+            return []
+        if f.status is not FindingStatus.ACTIVE:
+            if reason is not None:  # an administrative close also drops a pending one
+                del self._findings[f.fingerprint]
             return []
         del self._findings[f.fingerprint]
         f.status = FindingStatus.RESOLVED
         f.resolved_at_us = at_us
         f.last_seen_us = at_us
+        if reason is not None:
+            f.details = {**f.details, "resolution": reason}
         return [f]

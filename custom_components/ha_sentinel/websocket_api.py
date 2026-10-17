@@ -27,6 +27,7 @@ from .core.clock import datetime_to_us, us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
 from .core.models import CapabilityStatus, ModuleState, is_uuid4, new_uuid
 from .core.ratelimit import RequestClass
+from .modules.doctor.overrides import PARAM_RANGES
 from .repositories import history, jobs
 from .repositories import repository as repo
 
@@ -93,6 +94,9 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_maintenance_list,
         ws_maintenance_create,
         ws_maintenance_cancel,
+        ws_rules_list,
+        ws_rules_set,
+        ws_rules_delete,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -994,6 +998,60 @@ async def ws_maintenance_create(hass, connection, msg, runtime) -> None:
 async def ws_maintenance_cancel(hass, connection, msg, runtime) -> None:
     await runtime.maintenance.cancel(msg["window_id"], connection.user.id)
     connection.send_result(msg["id"], {"cancelled": True})
+
+
+@websocket_api.websocket_command(
+    _schema("rules/list") | {vol.Optional("subject_uid"): vol.All(str, vol.Length(max=300))}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_rules_list(hass, connection, msg, runtime) -> None:
+    """Per-object rule overrides; DOC005 entries are the heartbeat contracts."""
+    await runtime.rules.async_load()
+    items = [o for o in runtime.rules.overrides
+             if "subject_uid" not in msg or o.subject_uid == msg["subject_uid"]]
+    connection.send_result(msg["id"], {
+        "items": [runtime.rules.override_api(o) for o in items],
+        "ranges": {rule: {k: list(v) for k, v in params.items()}
+                   for rule, params in PARAM_RANGES.items()},
+    })
+
+
+@websocket_api.websocket_command(
+    _schema("rules/set")
+    | {
+        vol.Required("rule_id"): vol.In(list(PARAM_RANGES)),
+        vol.Required("subject_uid"): vol.All(str, vol.Length(min=1, max=300)),
+        vol.Required("enabled"): bool,
+        vol.Optional("params", default={}): vol.Schema({vol.All(str, vol.Length(max=40)): int}),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_rules_set(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    result = await runtime.rules.set(rule_id=msg["rule_id"], subject_uid=msg["subject_uid"],
+                                     enabled=msg["enabled"], params=msg["params"],
+                                     actor=connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("rules/delete") | {vol.Required("override_id"): _uuid,
+                               vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_rules_delete(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    await runtime.rules.delete(msg["override_id"], connection.user.id)
+    connection.send_result(msg["id"], {"deleted": True})
 
 
 @websocket_api.websocket_command(

@@ -56,3 +56,19 @@ def battery(uid: str, value: float, at_us: int, unit: str = "%"):
         subject_uid=uid,
         payload={"value": value, "unit": unit, "device_class": "battery"},
     )
+
+
+def heartbeat(uid: str, at_us: int):
+    seq = next(_seq)
+    return Observation(
+        id=new_uuid(),
+        ingest_seq=seq,
+        boot_id=BOOT,
+        source_id="ha.states",
+        source_event_id=str(seq),
+        kind=ObservationKind.HEARTBEAT,
+        received_at_us=at_us,
+        occurred_at_us=at_us,
+        subject_uid=uid,
+        payload={},
+    )

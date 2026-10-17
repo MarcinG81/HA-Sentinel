@@ -39,6 +39,7 @@ class ObservationKind(StrEnum):
     REGISTRY_CHANGED = "registry.changed"
     COVERAGE_GAP = "coverage.gap"
     UPDATE_STATE = "update.state"
+    HEARTBEAT = "heartbeat.seen"  # only for subjects with an explicit DOC005 contract
 
     @property
     def is_control(self) -> bool:

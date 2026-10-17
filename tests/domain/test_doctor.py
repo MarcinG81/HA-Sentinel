@@ -12,7 +12,7 @@ from custom_components.ha_sentinel.core.models import (
 )
 from custom_components.ha_sentinel.modules.doctor.engine import DoctorEngine, DoctorParams
 
-from .helpers import S, avail, battery, snapshot
+from .helpers import S, avail, battery, heartbeat, snapshot
 
 T0 = 1_792_230_000_000_000
 UID = "6a1b3a2e-1f8e-4c69-9d55-0d1f5b8e2a01"
@@ -173,6 +173,8 @@ def test_doc005_stale_with_explicit_heartbeat():
     assert run(e, T0 + 179 * S) == []
     assert [f.rule_id for f in run(e, T0 + 180 * S)] == ["DOC005"]
     out = e.process(avail(UID, "unavailable", T0 + 200 * S))
+    assert "DOC005" not in [f.rule_id for f in out]  # unavailable is not a report
+    out = e.process(heartbeat(UID, T0 + 210 * S))
     assert ("DOC005", FindingStatus.RESOLVED) in [(f.rule_id, f.status) for f in out]
 
 
@@ -237,3 +239,71 @@ def test_restored_findings_of_revised_rules_are_retired():
     retired = {f.id: f.details["resolution"] for f in e.retire_stale(T0 + 1)}
     assert retired == {"legacy": "rule_revised", "stateless": "rule_revised"}
     assert [f.id for f in e.active_findings()] == ["current"]
+
+
+def _override(rule, uid, enabled=True, **params):
+    from custom_components.ha_sentinel.modules.doctor.overrides import RuleOverride
+    return RuleOverride(id=f"o-{rule}", rule_id=rule, subject_uid=uid, enabled=enabled,
+                        params=params)
+
+
+def test_heartbeat_contract_from_override_and_its_removal():
+    e = engine()
+    e.process(snapshot(UID, "available", T0))
+    assert e.heartbeat_subjects == frozenset()
+    e.set_overrides([_override("DOC005", UID, period_s=60, threshold_s=300)], T0)
+    assert run(e, T0 + 299 * S) == []  # max(3 x 60, 300)
+    e.process(heartbeat(UID, T0 + 200 * S))
+    assert run(e, T0 + 499 * S) == []
+    assert [f.rule_id for f in run(e, T0 + 500 * S)] == ["DOC005"]
+    closed = e.set_overrides([], T0 + 600 * S)
+    assert [(f.rule_id, f.details["resolution"]) for f in closed] == [
+        ("DOC005", "contract_removed")]
+    assert run(e, T0 + 10_000 * S) == []
+    assert e.process(heartbeat(UID, T0 + 10_001 * S)) == []  # no contract, ignored
+
+
+def test_heartbeat_ignored_without_contract_ac_doc_03():
+    e = engine()
+    e.process(snapshot(UID, "available", T0))
+    for i in range(1, 25):
+        e.process(heartbeat(UID, T0 + i * 3600 * S))
+    assert run(e, T0 + 86_400 * S) == []
+
+
+def test_override_changes_threshold_and_disables_rule():
+    e = engine()
+    other = "7d0e4b8c-9f1a-4e37-8f5b-2a3c4d5e6f70"
+    e.set_overrides([_override("DOC001", UID, unavailable_s=600)], T0)
+    for uid in (UID, other):
+        e.process(snapshot(uid, "available", T0))
+        e.process(avail(uid, "unavailable", T0 + 200 * S))
+    assert [f.subject_uid for f in run(e, T0 + 799 * S)] == [other]
+    assert [f.subject_uid for f in run(e, T0 + 800 * S)] == [UID]
+    closed = e.set_overrides([_override("DOC001", other, enabled=False)], T0 + 900 * S)
+    assert [(f.subject_uid, f.details["resolution"]) for f in closed] == [
+        (other, "rule_disabled")]
+    e.process(avail(other, "available", T0 + 950 * S))
+    e.process(avail(other, "unavailable", T0 + 1000 * S))
+    assert [f for f in run(e, T0 + 5000 * S) if f.subject_uid == other] == []
+
+
+def test_override_validation():
+    import pytest
+
+    from custom_components.ha_sentinel.core.errors import SentinelError
+    from custom_components.ha_sentinel.modules.doctor.overrides import validate
+
+    assert validate("DOC005", True, {"period_s": 60}) == {"period_s": 60}
+    assert validate("DOC001", False, {}) == {}
+    for rule, enabled, params, field in (
+        ("DOC010", True, {}, "rule_id"),
+        ("DOC001", True, {"bogus": 1}, "param"),
+        ("DOC001", True, {"unavailable_s": 5}, "param"),
+        ("DOC001", True, {"unavailable_s": True}, "param"),
+        ("DOC005", True, {}, "param"),
+        ("DOC004", True, {"low_pct": 30, "clear_pct": 25}, "param"),
+    ):
+        with pytest.raises(SentinelError) as err:
+            validate(rule, enabled, params)
+        assert err.value.code == "validation_failed" and field in err.value.details

@@ -72,7 +72,8 @@ def async_snapshot(hass: HomeAssistant, inventory: Inventory) -> RegistrySnapsho
         seen.add(state.entity_id)
 
     devices = [
-        DeviceInfo(d.id, d.name_by_user or d.name, d.area_id, tuple(sorted(d.config_entries)))
+        DeviceInfo(d.id, d.name_by_user or d.name, d.area_id,
+                   (d.config_entry_id,) if d.config_entry_id else ())
         for d in dev_reg.devices.values()
     ]
     entries = [EntryInfo(e.entry_id, e.domain, e.title)

@@ -22,6 +22,7 @@ import type {
 import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
 import { renderDataCard, renderExportCard } from "./views_data.ts";
 import { renderMaintenanceCard } from "./views_maintenance.ts";
+import { renderRulesCard } from "./views_rules.ts";
 import { renderNetwork } from "./views_network.ts";
 import { renderAutopilot, renderHistory, renderMap } from "./views_e3.ts";
 
@@ -480,6 +481,7 @@ class SentinelPanel extends HTMLElement {
         more ? h("div", { class: "actions" }, more) : null,
       ),
       await renderMaintenanceCard(this.ctx),
+      await renderRulesCard(this.ctx),
     );
   }
 
