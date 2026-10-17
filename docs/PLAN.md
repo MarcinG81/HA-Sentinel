@@ -166,7 +166,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G2a | Komplet opcji 27.1: działające przełączniki modułów, `ingestion.allowed_domains`, `retention.incidents_days`, sekcje formularza | 27.1 | **zrobione** |
 | G2b | Źródła liczbowe: `ingestion.numeric_sampling` z wyborem encji i celu, ręczne mapowanie baterii (wspólna podstawa dla DOC008) | 5.1, 27.1 | **zrobione** |
 | G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | **zrobione** |
-| G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | do zrobienia |
+| G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | **zrobione** |
 
 ### R1 1.0 — braki
 
@@ -223,3 +223,10 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Szkic jest budowany jako drzewo, serializowany do YAML i przepuszczany przez ten sam bezpieczny parser, ekstrakcję i lint co import (AC AUT 04, test porównuje wyniki obu ścieżek). Deterministyczne `id` z treści.
 - Wynik = eksport YAML albo zapis jako importowany snapshot. Kreator nic nie instaluje w HA i nie wywołuje usług (test ze spy).
 - Panel: czytelne komunikaty błędów walidacji (nieznana encja, zakres, pole), nie ogólne „operacja nie powiodła się”.
+
+### G4 — decyzje
+
+- Migracja v9: `network_hosts`, `network_host_keys` (MAC, hostname; unikalne globalnie — konflikt = `identity_conflict`, bez automatycznego scalania), `network_host_addresses` (atrybut, nie tożsamość; zmiana IP zostawia ten sam host — AC NET 01), `network_host_links` (tylko potwierdzone przez admina, z zapisanym dowodem), `network_targets.host_id`.
+- Sugestie powiązań z rejestru urządzeń HA: ten sam MAC (0,9), nazwa hosta z `configuration_url` (0,5), IP (0,3 — DHCP). Sugestia nigdy nie tworzy powiązania.
+- Dwa osobne stany hosta: sieć (najgorszy status zatwierdzonych endpointów; w N0 `not_probed`) i Home Assistant (dostępność encji powiązanych urządzeń). Żaden nie jest wyprowadzany z drugiego.
+- Graf: urządzenie → host `depends_on` (manual, 1,0), host → endpoint `uses_endpoint`. Usunięcie hosta zdejmuje powiązanie z celów sond.

@@ -3,6 +3,7 @@
 import type { Ctx } from "./ctx.ts";
 import { h, uuid4 } from "./dom.ts";
 import type { JobInfo, NetworkDevice, NetworkTarget, WsError } from "./types.ts";
+import { type Host, renderHostsCard } from "./views_hosts.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STATUS_CLASS: Record<NetworkTarget["status"], string> = {
@@ -11,9 +12,10 @@ const STATUS_CLASS: Record<NetworkTarget["status"], string> = {
 
 export async function renderNetwork(ctx: Ctx): Promise<HTMLElement> {
   const { t } = ctx;
-  const [inv, targets] = await Promise.all([
+  const [inv, targets, hosts] = await Promise.all([
     ctx.ws<{ level: string; probe_capability: { status: string; reason_code: string | null }; devices: NetworkDevice[] }>({ type: "ha_sentinel/network/inventory" }),
     ctx.ws<{ items: NetworkTarget[]; allowlist: string[]; interval_s: number; active: boolean }>({ type: "ha_sentinel/network/targets/list" }),
+    ctx.ws<{ items: Host[] }>({ type: "ha_sentinel/network/hosts/list" }),
   ]);
   const deviceName = new Map(inv.devices.map((d) => [d.device_id, d.name ?? d.device_id]));
   const head = h(
@@ -23,7 +25,7 @@ export async function renderNetwork(ctx: Ctx): Promise<HTMLElement> {
     h("p", { class: "muted" }, t(targets.active ? "net.n1_hint" : "net.n0_hint").replace("{s}", String(targets.interval_s))),
     targets.active ? h("p", { class: "muted" }, `${t("net.allowlist")}: `, h("code", {}, targets.allowlist.join(", "))) : null,
   );
-  return h("div", { class: "stack" }, head, targetsCard(ctx, targets.items, targets.active, inv.devices, deviceName), inventoryCard(ctx, inv.devices));
+  return h("div", { class: "stack" }, head, renderHostsCard(ctx, hosts.items), targetsCard(ctx, targets.items, targets.active, inv.devices, deviceName, hosts.items), inventoryCard(ctx, inv.devices));
 }
 
 function inventoryCard(ctx: Ctx, devices: NetworkDevice[]): HTMLElement {
@@ -43,7 +45,7 @@ function inventoryCard(ctx: Ctx, devices: NetworkDevice[]): HTMLElement {
   );
 }
 
-function targetsCard(ctx: Ctx, items: NetworkTarget[], active: boolean, devices: NetworkDevice[], deviceName: Map<string, string>): HTMLElement {
+function targetsCard(ctx: Ctx, items: NetworkTarget[], active: boolean, devices: NetworkDevice[], deviceName: Map<string, string>, hosts: Host[]): HTMLElement {
   const { t } = ctx;
   const status = h("div", { role: "status", "aria-live": "polite" });
   const scan = h("button", { class: "secondary", disabled: !active || items.length === 0 }, t("net.scan")) as HTMLButtonElement;
@@ -79,6 +81,12 @@ function targetsCard(ctx: Ctx, items: NetworkTarget[], active: boolean, devices:
         "div",
         { class: "row" },
         h("button", { class: "secondary small", onclick: () => void mutate(ctx, { type: "ha_sentinel/network/targets/update", target_id: x.id, enabled: !x.enabled }) }, t(x.enabled ? "net.disable" : "net.enable")),
+        hosts.length
+          ? h("label", { class: "row small-text" }, t("net.host_link"), " ",
+              h("select", { "aria-label": `${t("net.host_link")}: ${x.label}`, onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; void mutate(ctx, { type: "ha_sentinel/network/targets/update", target_id: x.id, host_id: v || null }); } },
+                h("option", { value: "", selected: !x.host_id }, t("net.host_none")),
+                hosts.map((hs) => h("option", { value: hs.id, selected: x.host_id === hs.id }, hs.display_name))))
+          : null,
         h("button", { class: "secondary small", onclick: () => { if (confirm(t("net.delete_confirm"))) void mutate(ctx, { type: "ha_sentinel/network/targets/delete", target_id: x.id }); } }, t("net.delete")),
       ),
     ),

@@ -163,6 +163,8 @@ table.metrics td { text-align: right; }
 .scroll { overflow-x: auto; }
 .scroll:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 fieldset.plain { border: 0; padding: 0; margin: 0; }
+ul.plain { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; }
+ul.plain li.row { justify-content: space-between; flex-wrap: wrap; }
 fieldset.plain legend { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 4px; }
 button.danger { background: var(--s-danger-bg); border-color: var(--s-danger-bg); }
 .hyp-strong { --badge: var(--error-color, #db4437); }

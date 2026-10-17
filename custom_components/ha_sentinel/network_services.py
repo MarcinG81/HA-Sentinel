@@ -47,6 +47,7 @@ from .modules.network.targets import (
     parse_allowlist,
     validate_spec,
 )
+from .network_hosts import HostService
 from .repositories import jobs
 from .repositories import repository as repo
 from .repositories.repository import _tx, insert_audit
@@ -73,6 +74,7 @@ class NetworkService:
         self.probes_started = 0  # observable for AC NET 04
         self._timer: CALLBACK_TYPE | None = None
         self._stopping = False
+        self.hosts = HostService(self)
 
     @property
     def capability(self) -> tuple[CapabilityStatus, str | None]:
@@ -82,6 +84,7 @@ class NetworkService:
 
     async def async_start(self) -> None:
         await self._load()
+        await self.hosts.async_load()
         if self.active:
             self._schedule()
 
@@ -190,7 +193,8 @@ class NetworkService:
                 # Manual mapping: the device depends on this endpoint (provenance manual).
                 edges.append(Edge(f"device:{t['linked_device_id']}", uid, "depends_on",
                                   "manual", 1.0, f"network_target:{tid}"))
-        return nodes, edges
+        host_nodes, host_edges = self.hosts.graph_elements()
+        return nodes + host_nodes, edges + host_edges
 
     # --- Targets (adding a target is the admin's approval) ---------------------------
 
@@ -200,6 +204,7 @@ class NetworkService:
             "id": t["id"], "label": t["label"], "host": t["host"], "port": t["port"],
             "kind": t["kind"], "path": t["path"], "allow_loopback": bool(t["allow_loopback"]),
             "linked_device_id": t["linked_device_id"], "enabled": bool(t["enabled"]),
+            "host_id": t.get("host_id"),
             "status": str(st.status) if st else str(Status.UNKNOWN),
             "last_outcome": str(st.last_outcome) if st and st.last_outcome else None,
             "failures": st.failures if st else 0,
@@ -249,17 +254,21 @@ class NetworkService:
 
     async def update_target(self, tid: str, *, enabled: bool | None,
                             linked_device_id: str | None, clear_link: bool,
-                            actor: str) -> dict[str, Any]:
+                            actor: str, host_id: str | None = None,
+                            clear_host: bool = False) -> dict[str, Any]:
         if tid not in self.targets:
             raise SentinelError(ErrorCode.NOT_FOUND, "target not found")
+        if host_id is not None and host_id not in self.hosts.hosts:
+            raise SentinelError(ErrorCode.NOT_FOUND, "host not found")
         now = self.rt.clock.now_us()
         link = None if clear_link else (linked_device_id or self.targets[tid]["linked_device_id"])
+        host = None if clear_host else (host_id or self.targets[tid].get("host_id"))
 
         def update(conn):
             with _tx(conn):
                 conn.execute("UPDATE network_targets SET enabled=COALESCE(?, enabled), "
-                             "linked_device_id=? WHERE id=?",
-                             (None if enabled is None else int(enabled), link, tid))
+                             "linked_device_id=?, host_id=? WHERE id=?",
+                             (None if enabled is None else int(enabled), link, host, tid))
                 insert_audit(conn, actor, tid, "network.target.update", tid, "ok", now)
 
         await self.rt.db.run(update)

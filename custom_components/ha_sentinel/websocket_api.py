@@ -102,6 +102,10 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_numeric_set,
         ws_numeric_delete,
         ws_autopilot_draft,
+        ws_network_hosts_list,
+        ws_network_hosts_save,
+        ws_network_hosts_delete,
+        ws_network_hosts_link,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -961,6 +965,7 @@ async def ws_network_targets_add(hass, connection, msg, runtime) -> None:
         vol.Required("target_id"): _uuid,
         vol.Optional("enabled"): bool,
         vol.Optional("linked_device_id"): vol.Any(None, vol.All(str, vol.Length(max=64))),
+        vol.Optional("host_id"): vol.Any(None, _uuid),
         vol.Required("request_key"): _uuid,
     }
 )
@@ -972,8 +977,80 @@ async def ws_network_targets_update(hass, connection, msg, runtime) -> None:
     result = await _network(runtime).update_target(
         msg["target_id"], enabled=msg.get("enabled"),
         linked_device_id=msg.get("linked_device_id"), clear_link=clear,
-        actor=connection.user.id)
+        actor=connection.user.id, host_id=msg.get("host_id"),
+        clear_host="host_id" in msg and msg["host_id"] is None)
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(_schema("network/hosts/list"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_network_hosts_list(hass, connection, msg, runtime) -> None:
+    """N0 hosts with link suggestions; reachability and HA availability stay separate."""
+    net = _network(runtime)
+    await net.hosts.async_load()
+    connection.send_result(msg["id"], {"items": net.hosts.hosts_api(),
+                                       "probes_active": net.active})
+
+
+@websocket_api.websocket_command(
+    _schema("network/hosts/save")
+    | {
+        vol.Optional("host_id"): _uuid,
+        vol.Required("display_name"): vol.All(str, vol.Length(min=1, max=100)),
+        vol.Optional("mac"): vol.Any(None, vol.All(str, vol.Length(max=17))),
+        vol.Optional("hostname"): vol.Any(None, vol.All(str, vol.Length(max=253))),
+        vol.Optional("addresses", default=[]): vol.All([vol.All(str, vol.Length(max=45))],
+                                                       vol.Length(max=8)),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_hosts_save(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    result = await _network(runtime).hosts.save(
+        host_id=msg.get("host_id"), display_name=msg["display_name"], mac=msg.get("mac"),
+        hostname=msg.get("hostname"), addresses=msg["addresses"], actor=connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("network/hosts/delete") | {vol.Required("host_id"): _uuid,
+                                       vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_hosts_delete(hass, connection, msg, runtime) -> None:
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    await _network(runtime).hosts.delete(msg["host_id"], connection.user.id)
+    connection.send_result(msg["id"], {"deleted": True})
+
+
+@websocket_api.websocket_command(
+    _schema("network/hosts/link")
+    | {
+        vol.Required("host_id"): _uuid,
+        vol.Required("device_id"): vol.All(str, vol.Length(min=1, max=64)),
+        vol.Optional("unlink", default=False): bool,
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_network_hosts_link(hass, connection, msg, runtime) -> None:
+    """Only an admin creates a host <-> device link; suggestions never do (spec 13.2)."""
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    await _network(runtime).hosts.link(msg["host_id"], msg["device_id"], connection.user.id,
+                                       unlink=msg["unlink"])
+    connection.send_result(msg["id"], {"linked": not msg["unlink"]})
 
 
 @websocket_api.websocket_command(

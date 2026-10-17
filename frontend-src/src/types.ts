@@ -327,6 +327,7 @@ export interface NetworkTarget {
   path: string;
   allow_loopback: boolean;
   linked_device_id: string | null;
+  host_id: string | null;
   enabled: boolean;
   status: "unknown" | "reachable" | "service_closed" | "unreachable";
   last_outcome: string | null;

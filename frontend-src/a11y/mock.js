@@ -29,6 +29,11 @@ export const DATA = {
   "ha_sentinel/numeric/list": { numeric_sampling: false, items: [
     { id: "n1", subject_uid: "u3", subject_label: "sensor.lock_power", subject_deleted: false, purpose: "battery", scale_min: 0, scale_max: 255, threshold: null, sampling: true },
     { id: "n2", subject_uid: "u4", subject_label: "sensor.plug_lqi", subject_deleted: false, purpose: "signal", scale_min: 0, scale_max: 255, threshold: 60, sampling: false }] },
+  "ha_sentinel/network/hosts/list": { probes_active: false, items: [
+    { id: "h1", display_name: "NAS", keys: { mac: "aa:bb:cc:dd:ee:ff" }, addresses: [{ family: "ipv4", value: "192.168.1.10" }],
+      links: [{ device_id: "d1", name: "Synology", missing: false }],
+      suggestions: [{ device_id: "d2", name: "Drukarka", reasons: ["ip_match"], confidence: 0.3 }],
+      reachability: "not_probed", ha_entities: { available: 3, unavailable: 1, unknown: 0 }, endpoints: [] }] },
   "ha_sentinel/rules/list": { items: [
     { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, enabled: true, params: { period_s: 300 } },
     { id: "r2", rule_id: "DOC001", subject_uid: "u2", subject_label: null, subject_deleted: true, enabled: false, params: {} }],
