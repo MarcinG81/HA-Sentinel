@@ -13,7 +13,7 @@
 
 | Etap | Zakres | Status |
 |---|---|---|
-| E0 | Kwalifikacja HA (B01–B03): lifecycle, panel, WS admin, reload automatyzacji | do zrobienia na żywym HA |
+| E0 | Kwalifikacja HA (B01–B03): lifecycle, panel, WS admin, reload automatyzacji | **zrobione** na żywym HA 2026.10.2 |
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
@@ -153,3 +153,42 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 ## Kryteria wydania — pokrycie (spec 23.3)
 
 Pokrycie gałęzi (2026-10-17, 306 testów): całość 91%; polityka `websocket_api` 94%; dziennik `apply` 92%, `managed` 97%, `change_services` 90%; parser `yaml_ast` 97%, `autopilot/model` 95%; moduły domenowe ≥ 80% (`replay` 93%). CI wymaga ≥ 90% całości. Dodane testy ścieżek bezpieczeństwa: cofnięcie uprawnień admina przed skutkiem ubocznym, unieważnienie planów po zmianie polityki, `internal_error` bez śladu stosu, `not_ready` dla każdej komendy bez runtime, kursor związany z użytkownikiem i filtrem, recovery przy starcie po awarii po zapisie (AC HK 03).
+
+## Luki względem specyfikacji (przegląd PDF v1.1, 2026-10-17)
+
+Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy pakiet = kod + testy + tłumaczenia PL/EN + commit.
+
+### MVP 0.1 — braki
+
+| # | Pakiet | Rozdział | Status |
+|---|---|---|---|
+| G1 | Kontrakt heartbeat dla DOC005: deklaracja encji i okresu (API + UI), próg ręczny, T06 | 8.1, 8.4 | do zrobienia |
+| G2 | Opcje `ingestion.allowed_domains` i `ingestion.numeric_sampling` (wybór encji), ręczne mapowanie baterii | 5.1, 27.1 | do zrobienia |
+| G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | do zrobienia |
+| G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | do zrobienia |
+
+### R1 1.0 — braki
+
+| # | Pakiet | Rozdział | Status |
+|---|---|---|---|
+| G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | do zrobienia |
+| G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | do zrobienia |
+| G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | do zrobienia |
+| G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | do zrobienia |
+| G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | do zrobienia |
+| G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | do zrobienia |
+| G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | do zrobienia |
+| G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | do zrobienia |
+| G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | do zrobienia |
+| G14 | Budżety klas danych: audyt (limit blokuje mutacje), 50 snapshotów na zasób, agregaty minutowe/godzinowe telemetrii | 7.3 | do zrobienia |
+
+### Wymaga prawdziwych instalacji (poza kodem)
+
+- B27 pilot: 2 tygodnie, 5 instalacji, ręczna ocena fałszywych alarmów, raport precision ≥ 90% (1.2, 23.3).
+- T21: soak 24 h standard i 72 h; CPU/RAM na sprzęcie referencyjnym 4× ARM64 / 4 GB / SSD (21.1).
+- Test utraty zasilania na filesystemie referencyjnym (23.2).
+- Prawdziwy adres repo i `codeowners` w `manifest.json` (18.1).
+
+### R2 — świadomie poza zakresem
+
+AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan CIDR, analiza logów.
