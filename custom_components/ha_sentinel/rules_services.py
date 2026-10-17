@@ -60,6 +60,9 @@ class RuleService:
         ent = self.rt.inventory.get(subject_uid)
         if ent is None or ent.deleted_at_us is not None:
             raise SentinelError(ErrorCode.NOT_FOUND, "unknown subject")
+        if rule_id == "DOC007" and ent.domain != "automation":
+            raise SentinelError(ErrorCode.VALIDATION_FAILED, "expected runs need an automation",
+                                param="subject_uid")
         now = self.rt.clock.now_us()
 
         def upsert(conn):
@@ -111,5 +114,6 @@ class RuleService:
         await self.async_load()
         closed = self.rt.doctor.set_overrides(self.overrides, self.rt.clock.now_us())
         self.rt.refresh_heartbeat_tracking()
+        self.rt.reschedule_doctor()  # new deadlines (heartbeat, expected runs) need a timer
         await self.rt.commit_findings(closed)
         self.rt.bump()

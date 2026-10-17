@@ -40,6 +40,7 @@ class ObservationKind(StrEnum):
     COVERAGE_GAP = "coverage.gap"
     UPDATE_STATE = "update.state"
     HEARTBEAT = "heartbeat.seen"  # only for subjects with an explicit DOC005 contract
+    AUTOMATION_RUN = "automation.run"  # last_triggered changed; only with a DOC007 calendar
 
     @property
     def is_control(self) -> bool:

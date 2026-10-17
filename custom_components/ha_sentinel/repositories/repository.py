@@ -412,7 +412,7 @@ _EVIDENCE_FIELDS = ("from", "to", "availability", "value", "unit", "device_class
 # Finding details shown in the API: only these fields, whatever a rule stored.
 _DETAIL_FIELDS = ("resolution", "value", "threshold", "entries", "latest_version", "ratio",
                   "outcome", "resource_label", "imported_at", "missing_count", "stale_count",
-                  "missing", "stale")
+                  "missing", "stale", "window_start", "window_end")
 _REF_FIELDS = ("entity_id", "current", "pointer")
 
 

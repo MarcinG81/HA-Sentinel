@@ -159,3 +159,41 @@ async def test_rule_changes_create_type_s_snapshots(hass, hass_ws_client, freeze
                         from_snapshot_id=snaps[-1]["id"], to_snapshot_id=snaps[0]["id"]))
     paths = [c["path"] for c in diff["result"]["semantic"]]
     assert paths == ["/rule_overrides/0"]
+
+
+async def test_doc007_expected_run_end_to_end(hass, hass_ws_client, freezer):
+    from datetime import datetime
+
+    from homeassistant.util import dt as dt_util
+
+    await hass.config.async_set_time_zone("Europe/Warsaw")
+    er.async_get(hass).async_get_or_create("automation", "automation", "morning",
+                                           suggested_object_id="morning")
+    hass.states.async_set("automation.morning", "on", {"last_triggered": None})
+    hass.states.async_set("sensor.x", "1")
+    _, runtime = await _setup(hass)
+    await _tick(hass, freezer, 40)
+    uid = runtime.inventory.uid_for_alias("automation.morning")
+    local = dt_util.now()
+    minute = (local.hour * 60 + local.minute + 10) % 1440  # window centre in 10 min
+    client = await hass_ws_client(hass)
+    wrong = await _call(client, type=f"{DOMAIN}/rules/set", rule_id="DOC007",
+                        subject_uid=runtime.inventory.uid_for_alias("sensor.x"), enabled=True,
+                        params={"days_mask": 127, "minute": minute, "tolerance_min": 5},
+                        request_key=str(uuid.uuid4()))
+    assert wrong["error"]["details"]["param"] == "subject_uid"  # only automations
+    res = await _call(client, type=f"{DOMAIN}/rules/set", rule_id="DOC007", subject_uid=uid,
+                      enabled=True, params={"days_mask": 127, "minute": minute,
+                                            "tolerance_min": 5},
+                      request_key=str(uuid.uuid4()))
+    assert res["success"], res
+    await client.close()
+
+    await _tick(hass, freezer, 60, n=16)  # past the window end, no run
+    assert [f.subject_uid for f in _active(runtime, "DOC007")] == [uid]
+
+    ran = datetime.now(dt_util.UTC)
+    hass.states.async_set("automation.morning", "on", {"last_triggered": ran})
+    await _tick(hass, freezer, 10)
+    await runtime.async_flush()
+    assert _active(runtime, "DOC007") == []

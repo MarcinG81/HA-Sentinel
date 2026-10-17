@@ -175,7 +175,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | **zrobione** |
 | G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | **zrobione** |
 | G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | **zrobione** |
-| G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | do zrobienia |
+| G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | **zrobione** |
 | G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | **zrobione** (z G2b) |
 | G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | do zrobienia |
 | G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | do zrobienia |
@@ -248,3 +248,10 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Migracja v11: `findings.details_json`. Szczegóły (wartość, próg, lista odwołań, powód zamknięcia) są zapisywane i pokazywane w incydencie przez allowlistę pól.
 - Błąd: przy starcie Doctor przejmował wszystkie aktywne findings, także DOC010 i NET001, które potem wisiały na zawsze obok nowych. Teraz każdy właściciel odtwarza swoje reguły (sieć zaczyna od stanu „nieosiągalny”, więc powrót zamyka finding, a trwająca awaria nie jest ogłaszana drugi raz); findings bez działającego właściciela są zamykane z powodem `owner_unavailable`.
 - Błąd: „najnowszy snapshot” przy równym `created_us` był wybierany po losowym UUID (wpływ m.in. na deduplikację). Rozstrzygnięcie po kolejności wstawienia (`rowid`).
+
+### G8 — decyzje
+
+- Oczekiwanie DOC007 = nadpisanie reguły dla automatyzacji: dni tygodnia (maska), minuta doby w strefie HA, tolerancja 1–240 min. Okna liczone przez `zoneinfo` (zgodne z DST). Migracja v12 przebudowuje `rule_overrides` (CHECK dopuszcza DOC007 i DOC008).
+- Sygnał: zmiana `last_triggered` tylko dla automatyzacji z kalendarzem; to zaobserwowany start, nie dowód sukcesu sekwencji (2.3).
+- Koniec okna: start w oknie → ok; automatyzacja wyłączona, niedostępna albo luka w monitoringu → nieznane (bez findingu); w pozostałych przypadkach DOC007 (WARNING). Kolejny start zamyka finding.
+- Znaleziony błąd: po zmianie nadpisań nowy termin (heartbeat, okno DOC007) czekał na najbliższą partię obserwacji, zanim uzbrojono timer — przy cichej encji nigdy. Timer jest teraz przeplanowywany przy każdej zmianie reguł.

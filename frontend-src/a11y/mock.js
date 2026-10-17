@@ -40,8 +40,9 @@ export const DATA = {
     { unit: "u3", kind: "device", label: "Gniazdko", entities: 2, rules: [], excluded: "maintenance" }] },
   "ha_sentinel/rules/list": { items: [
     { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, subject_persistent: true, enabled: true, params: { period_s: 300 } },
+    { id: "r3", rule_id: "DOC007", subject_uid: "u5", subject_label: "automation.morning", subject_deleted: false, subject_persistent: true, enabled: true, params: { days_mask: 31, minute: 420, tolerance_min: 15 } },
     { id: "r2", rule_id: "DOC001", subject_uid: "u2", subject_label: null, subject_deleted: true, enabled: false, params: {} }],
-    ranges: { DOC001: { unavailable_s: [30, 3600] }, DOC002: { unknown_s: [60, 86400] }, DOC003: { flap_threshold: [2, 100] }, DOC004: { low_pct: [1, 99], clear_pct: [2, 100] }, DOC005: { period_s: [10, 86400], threshold_s: [0, 604800] }, DOC009: {} } },
+    ranges: { DOC001: { unavailable_s: [30, 3600] }, DOC002: { unknown_s: [60, 86400] }, DOC003: { flap_threshold: [2, 100] }, DOC004: { low_pct: [1, 99], clear_pct: [2, 100] }, DOC005: { period_s: [10, 86400], threshold_s: [0, 604800] }, DOC007: { days_mask: [1, 127], minute: [0, 1439], tolerance_min: [1, 240] }, DOC008: {}, DOC009: {} } },
   "ha_sentinel/maintenance/list": { items: [{ id: "w1", scope_kind: "device", scope_id: "device:x", label: "Gniazdko", reason: "wymiana", start: "2026-10-17T09:00:00Z", end: "2026-10-17T11:00:00Z", active: true }] },
   "ha_sentinel/resources/list": { items: [{ id: "r1", provider: "managed", kind: "automation", label: "automations (managed)", write_policy: "managed_write", snapshots: 3, updated_at: "2026-10-17T09:00:00Z" }] },
   "ha_sentinel/snapshots/list": { items: [] },

@@ -13,6 +13,7 @@ import itertools
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from ...const import (
     DOC001_RECOVERY_STABLE_S,
@@ -36,8 +37,9 @@ from ...core.models import (
     Severity,
     new_uuid,
 )
+from .expectations import Expectation, next_window
 from .numeric import SIGNAL_HYSTERESIS
-from .overrides import RuleOverride, heartbeat_contracts
+from .overrides import RuleOverride, expectations, heartbeat_contracts
 
 S = 1_000_000  # microseconds per second
 
@@ -67,6 +69,7 @@ RULE_SEVERITY = {
     "DOC003": Severity.WARNING,
     "DOC004": Severity.WARNING,
     "DOC005": Severity.WARNING,
+    "DOC007": Severity.WARNING,
     "DOC008": Severity.INFO,  # advisory: a weak link is a risk, not a failure
     "DOC009": Severity.INFO,  # information, never an automatic upgrade
 }
@@ -105,6 +108,8 @@ class DoctorEngine:
         coverage_complete: CoverageFn | None = None,
         in_maintenance: Callable[[str], bool] | None = None,
         domain_of: Callable[[str], str | None] | None = None,
+        tz_name: str = "UTC",
+        automation_enabled: Callable[[str], bool | None] | None = None,
     ) -> None:
         self.params = params or DoctorParams()
         self._grace_end_us = boot_started_us + self.params.startup_grace_s * S
@@ -117,6 +122,13 @@ class DoctorEngine:
         self._heap: list[tuple[int, int, str, str, int]] = []
         self._overrides: dict[tuple[str, str], RuleOverride] = {}
         self._heartbeats: dict[str, tuple[int, int]] = dict(self.params.heartbeats)
+        # DOC007: expectation, current window and last observed run per automation.
+        self._tz_name = tz_name
+        self._automation_enabled = automation_enabled or (lambda _uid: None)
+        self._expect: dict[str, Expectation] = {}
+        self._windows: dict[str, tuple[int, int, int]] = {}  # uid -> (start, end, token)
+        self._last_run: dict[str, int] = {}
+        self.expect_unknown: set[str] = set()  # last window could not be judged
         self._seq = itertools.count()
         self.flap_partial: set[str] = set()  # subjects whose DOC003 window is incomplete
         for uid in self._heartbeats:
@@ -179,10 +191,23 @@ class DoctorEngine:
         self._heartbeats = contracts
         for uid in added:
             self._schedule_heartbeat(uid, now_us)
+        wanted = {uid: Expectation.from_params(p)
+                  for uid, p in expectations(self._overrides).items()}
+        for uid in set(self._expect) - set(wanted):
+            self._windows.pop(uid, None)
+            out += self._resolve("DOC007", uid, now_us, reason="contract_removed")
+        changed = [uid for uid, e in wanted.items() if self._expect.get(uid) != e]
+        self._expect = wanted
+        for uid in changed:
+            self._schedule_expectation(uid, now_us)
         for (rule, uid), o in self._overrides.items():
             if not o.enabled:
                 out += self._resolve(rule, uid, now_us, reason="rule_disabled")
         return out
+
+    @property
+    def expectation_subjects(self) -> frozenset[str]:
+        return frozenset(self._expect)
 
     def close_all(self, now_us: int, reason: str) -> list[Finding]:
         """Close every active finding and forget pending timers (module switched off)."""
@@ -224,6 +249,8 @@ class DoctorEngine:
             return self._on_numeric(obs)
         if obs.kind is ObservationKind.UPDATE_STATE:
             return self._on_update(obs)
+        if obs.kind is ObservationKind.AUTOMATION_RUN:
+            return self._automation_ran(obs)
         if obs.kind is ObservationKind.HEARTBEAT:
             if obs.subject_uid in self._heartbeats:
                 return self._heartbeat_seen(obs)
@@ -243,6 +270,9 @@ class DoctorEngine:
         while self._heap and self._heap[0][0] <= now_us:
             deadline, _, uid, action, token = heapq.heappop(self._heap)
             st = self._entities.get(uid)
+            if action == "expect":
+                out += self._check_expectation(uid, token)
+                continue
             if action == "heartbeat":
                 if uid not in self._heartbeats or (st is not None
                                                    and st.heartbeat_token != token):
@@ -433,6 +463,42 @@ class DoctorEngine:
                                details={"latest_version": obs.payload.get("latest_version")})
         return self._resolve("DOC009", uid, obs.received_at_us)
 
+    # --- Expected runs: DOC007 ---------------------------------------------------------
+
+    def _schedule_expectation(self, uid: str, after_us: int) -> None:
+        start, end = next_window(self._expect[uid], after_us, self._tz_name)
+        token = next(self._seq)
+        self._windows[uid] = (start, end, token)
+        self._push(end, uid, "expect", token)
+
+    def _check_expectation(self, uid: str, token: int) -> list[Finding]:
+        window = self._windows.get(uid)
+        if uid not in self._expect or window is None or window[2] != token:
+            return []
+        start, end, _ = window
+        out: list[Finding] = []
+        ran = (last := self._last_run.get(uid)) is not None and start <= last <= end
+        if ran:
+            self.expect_unknown.discard(uid)
+        elif self._automation_enabled(uid) is not True or not self._coverage_complete(start, end):
+            # Switched off, unavailable or a monitoring gap: unknown, never "missed".
+            self.expect_unknown.add(uid)
+        else:
+            self.expect_unknown.discard(uid)
+            out += self._raise("DOC007", uid, end, None, CoverageStatus.COMPLETE, details={
+                "window_start": _iso(start), "window_end": _iso(end)})
+        self._schedule_expectation(uid, end)
+        return out
+
+    def _automation_ran(self, obs: Observation) -> list[Finding]:
+        uid = obs.subject_uid
+        assert uid is not None
+        if uid not in self._expect:
+            return []
+        at = obs.occurred_at_us or obs.received_at_us
+        self._last_run[uid] = max(at, self._last_run.get(uid, 0))
+        return self._resolve("DOC007", uid, at)
+
     # --- Heartbeat: DOC005 -------------------------------------------------------
 
     def _schedule_heartbeat(self, uid: str, from_us: int) -> None:
@@ -510,3 +576,7 @@ class DoctorEngine:
         if reason is not None:
             f.details = {**f.details, "resolution": reason}
         return [f]
+
+
+def _iso(us: int) -> str:
+    return datetime.fromtimestamp(us / S, tz=UTC).isoformat().replace("+00:00", "Z")

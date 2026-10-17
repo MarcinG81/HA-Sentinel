@@ -165,6 +165,8 @@ class SentinelRuntime:
             coverage_complete=self.coverage.is_complete,
             in_maintenance=lambda uid: self.maintenance.covers(uid),
             domain_of=lambda uid: (e.domain if (e := self.inventory.get(uid)) else None),
+            tz_name=str(hass.config.time_zone),
+            automation_enabled=self._automation_enabled,
         )
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None
@@ -203,6 +205,7 @@ class SentinelRuntime:
         self._heartbeat_aliases: dict[str, str] = {}
         self._heartbeat_last_us: dict[str, int] = {}
         self._heartbeat_unsub: CALLBACK_TYPE | None = None
+        self._expect_aliases: dict[str, str] = {}  # automation entity_id -> uid (DOC007)
 
     # --- Lifecycle --------------------------------------------------------------
 
@@ -447,6 +450,8 @@ class SentinelRuntime:
             return
         if entity_id in self._heartbeat_aliases:
             self._heartbeat(entity_id, new_state)
+        if entity_id in self._expect_aliases:
+            self._automation_run(entity_id, event.data["old_state"], new_state)
         avail = availability_of(new_state)
         prev = self._availability.get(entity_id)
         samples = self._numeric_samples(new_state)
@@ -500,6 +505,12 @@ class SentinelRuntime:
         A sensor that reports the same value again fires state_reported, not
         state_changed; both count as a report. Only contracted entities are tracked.
         """
+        expect = {}
+        for uid in self.doctor.expectation_subjects if self.modules_enabled["doctor"] else ():
+            ent = self.inventory.get(uid)
+            if ent is not None and ent.deleted_at_us is None:
+                expect[ent.current_alias] = uid
+        self._expect_aliases = expect
         aliases = {}
         subjects = self.doctor.heartbeat_subjects if self.modules_enabled["doctor"] else ()
         for uid in subjects:
@@ -521,6 +532,23 @@ class SentinelRuntime:
         entity_id = event.data["entity_id"]
         if entity_id in self._heartbeat_aliases:
             self._heartbeat(entity_id, event.data["new_state"])
+
+    def _automation_enabled(self, uid: str) -> bool | None:
+        """True when the automation is on now; None when unknown (DOC007 stays unknown)."""
+        ent = self.inventory.get(uid)
+        state = self.hass.states.get(ent.current_alias) if ent else None
+        if state is None or state.state not in ("on", "off"):
+            return None
+        return state.state == "on"
+
+    def _automation_run(self, entity_id: str, old: State | None, new: State) -> None:
+        """last_triggered changed: an observed start, not proof of a successful run."""
+        ran = new.attributes.get("last_triggered")
+        if ran is None or (old is not None and old.attributes.get("last_triggered") == ran):
+            return
+        occurred = _dt_us(ran) if isinstance(ran, datetime) else None
+        self._offer(self._make_obs(ObservationKind.AUTOMATION_RUN,
+                                   self._expect_aliases[entity_id], {}, occurred))
 
     def _heartbeat(self, entity_id: str, state: State) -> None:
         if availability_of(state) is not Availability.AVAILABLE:
@@ -550,6 +578,10 @@ class SentinelRuntime:
             f.resolved_at_us = f.last_seen_us = now
             f.details = {**f.details, "resolution": "owner_unavailable"}
         await self._commit_findings(findings)
+
+    @callback
+    def reschedule_doctor(self) -> None:
+        self._reschedule_doctor()
 
     async def commit_findings(self, findings: list[Finding]) -> None:
         await self._commit_findings(findings)

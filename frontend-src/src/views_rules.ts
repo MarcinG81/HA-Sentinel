@@ -20,6 +20,8 @@ interface RulesList {
   ranges: Record<string, Record<string, [number, number]>>;
 }
 
+const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
 export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
   const { t } = ctx;
   const { items, ranges } = await ctx.ws<RulesList>({ type: "ha_sentinel/rules/list" });
@@ -32,9 +34,23 @@ export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
   const paramBox = h("div", { class: "grid2" });
   const err = h("div", { role: "alert" });
   let inputs: Record<string, HTMLInputElement> = {};
+  // DOC007 calendar: weekdays, local time and tolerance instead of raw numbers.
+  const dayBoxes = DAYS.map((_, i) => h("input", { id: `rul-day-${i}`, type: "checkbox", checked: i < 5 }) as HTMLInputElement);
+  const time = h("input", { id: "rul-time", type: "time", value: "07:00" }) as HTMLInputElement;
+  const tolerance = h("input", { id: "rul-tol", type: "number", min: "1", max: "240", value: "15", inputmode: "numeric" }) as HTMLInputElement;
 
   const renderParams = () => {
     inputs = {};
+    if (rule.value === "DOC007") {
+      paramBox.replaceChildren(
+        h("p", { class: "muted span2" }, t("rules.doc007_hint")),
+        h("fieldset", { class: "plain span2" }, h("legend", {}, t("rules.days")),
+          h("div", { class: "row" }, DAYS.map((d, i) => h("label", { class: "row", for: `rul-day-${i}` }, dayBoxes[i], t(`day.${d}`))))),
+        h("div", {}, h("label", { for: "rul-time" }, t("rules.time")), time),
+        h("div", {}, h("label", { for: "rul-tol" }, t("rules.param.tolerance_min")), tolerance),
+      );
+      return;
+    }
     paramBox.replaceChildren(...Object.entries(ranges[rule.value] ?? {}).map(([name, [lo, hi]]) => {
       const id = `rul-p-${name}`;
       const input = h("input", { id, type: "number", min: String(lo), max: String(hi), step: "1", inputmode: "numeric" }) as HTMLInputElement;
@@ -68,6 +84,12 @@ export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
         for (const [name, input] of Object.entries(inputs)) {
           if (input.value.trim() !== "") params[name] = Number(input.value);
         }
+        if (rule.value === "DOC007") {
+          const [hh, mm] = (time.value || "00:00").split(":").map(Number);
+          params.days_mask = dayBoxes.reduce((mask, box, i) => (box.checked ? mask | (1 << i) : mask), 0);
+          params.minute = hh * 60 + mm;
+          params.tolerance_min = Number(tolerance.value);
+        }
         try {
           await ctx.ws({ type: "ha_sentinel/rules/set", rule_id: rule.value, subject_uid: picked.uid, enabled: enabled.checked, params, request_key: uuid4() });
           ctx.rerender();
@@ -90,6 +112,11 @@ export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
   );
 
   const describe = (o: Override) => {
+    if (o.rule_id === "DOC007" && o.params.days_mask !== undefined) {
+      const days = DAYS.filter((_, i) => (o.params.days_mask >> i) & 1).map((d) => t(`day.${d}`)).join(", ");
+      const hhmm = `${String(Math.floor(o.params.minute / 60)).padStart(2, "0")}:${String(o.params.minute % 60).padStart(2, "0")}`;
+      return `${o.enabled ? "" : `${t("rules.disabled")} · `}${days} · ${hhmm} ± ${o.params.tolerance_min} min`;
+    }
     const parts = Object.entries(o.params).map(([k, v]) => `${t(`rules.param.${k}`)}: ${v}`);
     if (!o.enabled) parts.unshift(t("rules.disabled"));
     return parts.join(" · ") || t("rules.defaults");

@@ -20,9 +20,13 @@ PARAM_RANGES: dict[str, dict[str, tuple[int, int]]] = {
     "DOC003": {"flap_threshold": (2, 100)},
     "DOC004": {"low_pct": (1, 99), "clear_pct": (2, 100)},
     "DOC005": {"period_s": (10, 86_400), "threshold_s": (0, 7 * 86_400)},
+    # DOC007: weekday bitmask (Mon = bit 0), minute of the local day, tolerance.
+    "DOC007": {"days_mask": (1, 127), "minute": (0, 1439), "tolerance_min": (1, 240)},
+    "DOC008": {},
     "DOC009": {},
 }
-REQUIRED_WHEN_ENABLED = {"DOC005": ("period_s",)}
+REQUIRED_WHEN_ENABLED = {"DOC005": ("period_s",),
+                         "DOC007": ("days_mask", "minute", "tolerance_min")}
 OVERRIDABLE_RULES = tuple(PARAM_RANGES)
 
 
@@ -65,6 +69,12 @@ def validate(rule_id: str, enabled: bool, params: dict[str, Any]) -> dict[str, i
         raise SentinelError(ErrorCode.VALIDATION_FAILED, "clear threshold must exceed low",
                             param="clear_pct")
     return out
+
+
+def expectations(overrides: dict[tuple[str, str], RuleOverride]) -> dict[str, dict[str, int]]:
+    """subject_uid -> DOC007 params for every enabled expectation."""
+    return {o.subject_uid: o.params for o in overrides.values()
+            if o.rule_id == "DOC007" and o.enabled}
 
 
 def heartbeat_contracts(overrides: dict[tuple[str, str], RuleOverride]
