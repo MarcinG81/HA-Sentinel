@@ -136,3 +136,26 @@ async def test_override_of_registry_less_entity_stays_with_its_tombstone(hass, f
     assert runtime.inventory.get(old_uid).deleted_at_us is not None  # tombstone
     item = runtime.rules.override_api(runtime.rules.overrides[0])
     assert item["subject_uid"] == old_uid and item["subject_deleted"] is True
+
+
+async def test_rule_changes_create_type_s_snapshots(hass, hass_ws_client, freezer):
+    er.async_get(hass).async_get_or_create("switch", "demo", "pump",
+                                           suggested_object_id="pump")
+    hass.states.async_set("switch.pump", "on")
+    _, runtime = await _setup(hass)
+    await _tick(hass, freezer, 40)
+    uid = runtime.inventory.uid_for_alias("switch.pump")
+    await runtime.rules.set(rule_id="DOC001", subject_uid=uid, enabled=True,
+                            params={"unavailable_s": 600}, actor="admin")
+    await runtime.rules.set(rule_id="DOC001", subject_uid=uid, enabled=True,
+                            params={"unavailable_s": 600}, actor="admin")  # no change
+    client = await hass_ws_client(hass)
+    resources = (await _call(client, type=f"{DOMAIN}/resources/list"))["result"]["items"]
+    res = next(r for r in resources if r["kind"] == "sentinel_options")
+    snaps = (await _call(client, type=f"{DOMAIN}/snapshots/list",
+                         resource_id=res["id"]))["result"]["items"]
+    assert len(snaps) == 2  # startup + one real change; the repeat is deduplicated
+    diff = (await _call(client, type=f"{DOMAIN}/snapshots/diff",
+                        from_snapshot_id=snaps[-1]["id"], to_snapshot_id=snaps[0]["id"]))
+    paths = [c["path"] for c in diff["result"]["semantic"]]
+    assert paths == ["/rule_overrides/0"]

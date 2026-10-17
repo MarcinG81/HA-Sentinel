@@ -86,6 +86,7 @@ class NumericSourceService:
 
         sid = await self.rt.db.run(upsert)
         await self._apply([])
+        await self.rt.config_changed(actor)
         return next(s for s in self.sources if s.id == sid)
 
     async def delete(self, source_id: str, actor: str) -> None:
@@ -107,6 +108,7 @@ class NumericSourceService:
         closed = self.rt.doctor.close(RULE_OF_PURPOSE[row["purpose"]], row["subject_uid"],
                                       now, "source_removed")
         await self._apply(closed)
+        await self.rt.config_changed(actor)
 
     async def _apply(self, closed: list) -> None:
         await self.async_load()

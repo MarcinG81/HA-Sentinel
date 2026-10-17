@@ -55,8 +55,7 @@ class ConfigServices:
         for event in (er.EVENT_ENTITY_REGISTRY_UPDATED, dr.EVENT_DEVICE_REGISTRY_UPDATED,
                       ar.EVENT_AREA_REGISTRY_UPDATED):
             self._unsubs.append(self.hass.bus.async_listen(event, self._registry_changed))
-        if self.rt.storage_writable:
-            await self._snapshot_sentinel_options()
+        await self.snapshot_sentinel_config()
         await self.async_rebuild_graph()
 
     async def async_stop(self) -> None:
@@ -113,19 +112,49 @@ class ConfigServices:
 
     # --- Config history ------------------------------------------------------------------
 
-    async def _snapshot_sentinel_options(self) -> None:
-        """Type S resource: Sentinel's own options, snapshotted on every change (spec 10.1)."""
-        tree = {k: self.rt.entry.options[k] for k in sorted(self.rt.entry.options)}
+    def sentinel_config_tree(self) -> dict[str, Any]:
+        """Type S content: options plus per-object rule settings (spec 10.1, 27.1).
+
+        Subjects are keyed by UID; the alias at snapshot time is kept only as a label so
+        a diff stays readable after a rename.
+        """
+        def label(uid: str) -> str | None:
+            ent = self.rt.inventory.get(uid)
+            return ent.current_alias if ent else None
+
+        return {
+            "options": {k: self.rt.entry.options[k] for k in sorted(self.rt.entry.options)},
+            "rule_overrides": [
+                {"rule_id": o.rule_id, "subject_uid": o.subject_uid,
+                 "subject_label": label(o.subject_uid), "enabled": o.enabled,
+                 "params": dict(sorted(o.params.items()))}
+                for o in sorted(self.rt.rules.overrides, key=lambda o: o.key)],
+            "numeric_sources": [
+                {"purpose": n.purpose, "subject_uid": n.subject_uid,
+                 "subject_label": label(n.subject_uid), "scale_min": n.scale_min,
+                 "scale_max": n.scale_max, "threshold": n.threshold}
+                for n in sorted(self.rt.numeric.sources,
+                                key=lambda n: (n.purpose, n.subject_uid))],
+            "unit_weights": dict(sorted(self.rt.unit_weights.items())),
+        }
+
+    async def snapshot_sentinel_config(self, actor: str | None = None,
+                                       request_id: str = "startup") -> None:
+        """Snapshot after every change of options or rule settings; identical content is
+        deduplicated by the history repository."""
+        if not self.rt.storage_writable or not self.rt.modules_enabled["config_history"]:
+            return
+        tree = self.sentinel_config_tree()
         now = self.rt.clock.now_us()
 
         def save(conn):
             rid = history.find_resource(conn, "sentinel", "sentinel_options")
             return history.save_snapshot_tx(
                 conn, self.blobs, resource_id=rid, provider="sentinel", kind="sentinel_options",
-                label="HA Sentinel options", canonical_tree=tree,
+                label="HA Sentinel configuration", canonical_tree=tree,
                 canonical_hash=canonical_hash(tree), raw=None, raw_hash=None,
-                redacted_paths=[], validation={"parser": "n/a"}, actor_id=None,
-                request_id="startup", now_us=now,
+                redacted_paths=[], validation={"parser": "n/a"}, actor_id=actor,
+                request_id=request_id, now_us=now,
             )
 
         await self.rt.db.run(save)

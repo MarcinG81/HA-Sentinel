@@ -534,6 +534,11 @@ class SentinelRuntime:
     async def commit_findings(self, findings: list[Finding]) -> None:
         await self._commit_findings(findings)
 
+    async def config_changed(self, actor: str) -> None:
+        """Rule settings changed: new type S snapshot (spec 10.1)."""
+        if self.config is not None:
+            await self.config.snapshot_sentinel_config(actor, request_id="rules")
+
     @callback
     def _on_registry(self, event: Event[er.EventEntityRegistryUpdatedData]) -> None:
         if event.data["action"] != "remove":
@@ -883,6 +888,7 @@ class SentinelRuntime:
 
         await self.db.run(write)
         await self.async_load_weights()
+        await self.config_changed(actor)
         self.bump()
 
     def health_components(self) -> dict[str, Any]:

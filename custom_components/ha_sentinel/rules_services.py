@@ -87,6 +87,7 @@ class RuleService:
 
         oid = await self.rt.db.run(upsert)
         await self._apply()
+        await self.rt.config_changed(actor)
         return self.override_api(next(o for o in self.overrides if o.id == oid))
 
     async def delete(self, override_id: str, actor: str) -> None:
@@ -104,6 +105,7 @@ class RuleService:
 
         await self.rt.db.run(remove)
         await self._apply()
+        await self.rt.config_changed(actor)
 
     async def _apply(self) -> None:
         await self.async_load()

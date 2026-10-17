@@ -173,7 +173,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | # | Pakiet | Rozdział | Status |
 |---|---|---|---|
 | G5 | Nadpisania reguł per obiekt (`rule_id`, `subject_uid`, `enabled`, `params`, `scope.kind`), override `unavailable_s`, wagi jednostek 1..5 w health score | 8.3, 27.1, 27.2 | **zrobione** |
-| G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | do zrobienia |
+| G6 | Historia konfiguracji typu S: snapshot ustawień i nadpisań Sentinel po każdej zmianie, diff, eksport | 10.1, 27.1 | **zrobione** |
 | G7 | DOC006 missing reference + nieaktualny alias w imporcie (wyklucz tombstone w oknie migracji i niepełny import) | 8.1, 22.1 | do zrobienia |
 | G8 | DOC007 missed expectation: kalendarz i tolerancja użytkownika, brak dowodu = unknown | 2.3, 8.1 | do zrobienia |
 | G9 | DOC008 weak signal: tylko gdy adapter/użytkownik poda skalę i próg; brak porównań między technologiami | 8.1 | **zrobione** (z G2b) |
@@ -235,3 +235,9 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 
 - Wagi jednostek 1..5 (migracja v10, `unit_weights`; brak wiersza = 1), audyt każdej zmiany. `health/components` pokazuje każdą jednostkę: etykietę, aktywne reguły, karę, pokrycie, wagę i wykluczenia (8.3); karta w Przeglądzie domyślnie pokazuje tylko jednostki istotne.
 - Znaleziony błąd: encje bez wpisu w rejestrze z poprzednich startów zostawały „aktywne” obok nowej tożsamości tej samej encji (dziesiątki duplikatów w wyniku zdrowia). Przy ładowaniu inwentarza dostają teraz tombstone (6.1). Nadpisania i źródła liczbowe zostają przy tombstonie (27.1); panel ostrzega, że ustawienie dla encji bez unikalnego ID wygaśnie przy restarcie.
+
+### G6 — decyzje
+
+- Zasób typu S („HA Sentinel configuration”) obejmuje opcje, nadpisania reguł, źródła liczbowe i wagi jednostek. Snapshot przy starcie (po każdej zmianie opcji wpis się przeładowuje) i po każdej zmianie ustawień reguł; identyczna treść jest deduplikowana.
+- Obiekty kluczowane UID; alias z chwili snapshotu tylko jako etykieta, żeby diff był czytelny po zmianie nazwy. Cele i hosty sieciowe nie wchodzą do S (adresy i nazwy hostów nie trafiają do historii).
+- Przy wyłączonej historii konfiguracji snapshot S nie powstaje.
