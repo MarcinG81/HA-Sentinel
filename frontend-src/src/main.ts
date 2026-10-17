@@ -24,6 +24,7 @@ import type {
 import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
 import { renderDataCard, renderExportCard } from "./views_data.ts";
 import { renderMaintenanceCard } from "./views_maintenance.ts";
+import { renderBackupCard } from "./views_backup.ts";
 import { renderHealthComponents } from "./views_health.ts";
 import { renderIdentityCard } from "./views_identity.ts";
 import { renderNumericCard } from "./views_numeric.ts";
@@ -742,7 +743,9 @@ class SentinelPanel extends HTMLElement {
     const d = err?.details ?? {};
     switch (err?.code) {
       case "conflict":
-        return t("err.conflict");
+        if (d.reason === "backup_rejected") return t("backup.rejected");
+        if (d.reason === "identity_conflict") return t("err.identity_conflict");
+        return d.reason || d.param ? t("err.conflict_other") : t("err.conflict");
       case "rate_limited":
         return t("err.rate_limited");
       case "not_found":
@@ -856,7 +859,9 @@ class SentinelPanel extends HTMLElement {
   }
 
   private async renderSettingsView(): Promise<HTMLElement> {
-    return h("div", { class: "stack" }, this.renderSettings(), await renderDataCard(this.ctx));
+    return h("div", { class: "stack" }, this.renderSettings(),
+      await renderBackupCard(this.ctx, (path, label) => this.settingsLink(path, label)),
+      await renderDataCard(this.ctx));
   }
 
   private metricsCard(m: NonNullable<Diagnostics["metrics"]>): HTMLElement {
@@ -894,8 +899,7 @@ class SentinelPanel extends HTMLElement {
     );
   }
 
-  private settingsLink(): HTMLElement {
-    const path = "/config/integrations/integration/ha_sentinel";
+  private settingsLink(path = "/config/integrations/integration/ha_sentinel", label?: string): HTMLElement {
     return h(
       "a",
       {
@@ -908,7 +912,7 @@ class SentinelPanel extends HTMLElement {
           window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
         },
       },
-      this.t("settings.open"),
+      label ?? this.t("settings.open"),
     );
   }
 }

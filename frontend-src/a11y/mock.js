@@ -41,6 +41,7 @@ export const DATA = {
     { unit: "u3", kind: "device", label: "Gniazdko", entities: 2, rules: [], excluded: "maintenance" }] },
   "ha_sentinel/graph/revisions": { current: 4, items: [{ revision: 4, created_at: "2026-10-17T10:00:00Z" }, { revision: 3, created_at: "2026-10-16T10:00:00Z" }] },
   "ha_sentinel/identity/list": { items: [{ id: "s1", old: { uid: "o", entity_id: "sensor.garden_temp", deleted: true }, new: { uid: "n", entity_id: "sensor.garden_temp", deleted: false }, reason: "same_entity_id", created: "2026-10-17T10:00:00Z" }] },
+  "ha_sentinel/backup/status": { available: true, service: "create_automatic", settings_path: "/config/backup", entities: { manager_state: { entity_id: "sensor.backup_backup_manager_state", state: "idle" }, last_successful: { entity_id: "sensor.backup_last_successful_automatic_backup", state: "2026-10-17T04:45:00+00:00" } } },
   "ha_sentinel/rules/list": { items: [
     { id: "r1", rule_id: "DOC005", subject_uid: "u1", subject_label: "sensor.freezer_temp", subject_deleted: false, subject_persistent: true, enabled: true, params: { period_s: 300 } },
     { id: "r3", rule_id: "DOC007", subject_uid: "u5", subject_label: "automation.morning", subject_deleted: false, subject_persistent: true, enabled: true, params: { days_mask: 31, minute: 420, tolerance_min: 15 } },

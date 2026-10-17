@@ -180,7 +180,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G10 | Graf wersjonowany: `graph_revisions`, zapytanie o starą rewizję (AC MAP 05), pełny rebuild co 24 h, `continuation_cursor` | 6.3, 7.2, 12.2 | **zrobione** |
 | G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | **zrobione** |
 | G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | **zrobione** |
-| G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | do zrobienia |
+| G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | **zrobione** |
 | G14 | Budżety klas danych: audyt (limit blokuje mutacje), 50 snapshotów na zasób, agregaty minutowe/godzinowe telemetrii | 7.3 | do zrobienia |
 
 ### Wymaga prawdziwych instalacji (poza kodem)
@@ -275,3 +275,10 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 
 - Uzgadnianie co 15 min: wpisy rejestru encji kontra inwentarz — przegapione usunięcia dostają tombstone, zmiany nazw i urządzeń są dociągane. Czas ostatniego uzgodnienia w diagnostyce.
 - `suggested_same_as` (migracja v13, `identity_suggestions`): nowa encja z rejestru z `entity_id` tombstone'u innej encji z rejestru → sugestia, nigdy automatyczne scalenie. Zatwierdzenie przenosi nadpisania reguł, źródła liczbowe i wagę jednostki encji (konflikty: nowa tożsamość zachowuje swoje); historia zostaje przy starej tożsamości. Odrzucenie zostawia obie osobno. Encje bez wpisu w rejestrze nie dostają sugestii (zmieniają tożsamość przy każdym starcie).
+
+### G13 — decyzje
+
+- `backup/status`: stan encji integracji Backup (menedżer, ostatnia udana / próba, następna zaplanowana) i link do ustawień; karta w Ustawieniach wyjaśnia, że snapshoty Sentinel nie są kopią domu.
+- `backup/create`: jawna operacja admina z potwierdzeniem; preferowane `backup.create_automatic` (lokalizacje i szyfrowanie z ustawień), inaczej `backup.create`. Wywołanie w kontekście użytkownika (HA ponownie sprawdza uprawnienia admina), audyt przed skutkiem i po nim.
+- Czekamy tylko na przyjęcie (usługa wraca po starcie kopii, limit 30 s): odmowa HA (np. brak miejsca zapisu) jest zgłaszana jako `conflict/backup_rejected` bez treści wyjątku; przyjęcie ≠ ukończenie — wynik widać w encjach kopii.
+- Panel: komunikaty `conflict` rozróżniają incydent, konflikt tożsamości hosta i inne konflikty.

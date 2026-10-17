@@ -44,6 +44,7 @@ from .adapters.ha_states import (
     is_observed,
     update_payload,
 )
+from .backup_services import BackupService
 from .change_services import ChangeService
 from .config_services import ConfigServices
 from .const import (
@@ -162,6 +163,7 @@ class SentinelRuntime:
         self.numeric = NumericSourceService(self)
         self.unit_weights: dict[str, int] = {}  # health unit uid -> admin weight 2..5
         self.identity = IdentityService(self)
+        self.backup = BackupService(self)
         self.registry_synced_us: int | None = None
         # entity_id -> explicit numeric sources (manual battery mapping, signal scales).
         self._numeric_aliases: dict[str, list[NumericSource]] = {}

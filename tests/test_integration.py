@@ -31,6 +31,7 @@ WS_COMMANDS = [
     {"type": f"{DOMAIN}/health/components"},
     {"type": f"{DOMAIN}/graph/revisions"},
     {"type": f"{DOMAIN}/identity/list"},
+    {"type": f"{DOMAIN}/backup/status"},
     {"type": f"{DOMAIN}/incidents/list"},
     {"type": f"{DOMAIN}/subscribe"},
 ]
@@ -46,6 +47,7 @@ WS_MUTATIONS_AND_LOOKUPS = [
     {"type": f"{DOMAIN}/health/weight", "unit_uid": "u", "weight": 2, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/identity/decide", "suggestion_id": ANY_UUID, "confirm": True,
      "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/backup/create", "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/network/hosts/link", "host_id": ANY_UUID, "device_id": "d",
      "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/autopilot/draft", "alias": "x",

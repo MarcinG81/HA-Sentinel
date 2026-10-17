@@ -111,6 +111,8 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_graph_revisions,
         ws_identity_list,
         ws_identity_decide,
+        ws_backup_status,
+        ws_backup_create,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -1337,6 +1339,28 @@ async def ws_identity_decide(hass, connection, msg, runtime) -> None:
     moved = await runtime.identity.decide(msg["suggestion_id"], msg["confirm"],
                                           connection.user.id)
     connection.send_result(msg["id"], {"moved": moved})
+
+
+@websocket_api.websocket_command(_schema("backup/status"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_backup_status(hass, connection, msg, runtime) -> None:
+    """State of the HA backup entities; Sentinel snapshots are not a backup (10.5)."""
+    connection.send_result(msg["id"], runtime.backup.status())
+
+
+@websocket_api.websocket_command(
+    _schema("backup/create") | {vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_backup_create(hass, connection, msg, runtime) -> None:
+    """Explicit admin request; acceptance is not completion (10.5)."""
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "audit cannot be written")
+    connection.send_result(msg["id"], await runtime.backup.create(connection.user.id))
 
 
 @websocket_api.websocket_command(
