@@ -36,6 +36,9 @@ async def _call(client, **msg):
 
 async def _tick(hass, freezer, seconds=10, n=1):
     for _ in range(n):
+        # The writer wakes on real time while this clock is frozen: drain it first.
+        if (rt := hass.data.get(DOMAIN, {}).get("runtime")) is not None:
+            await rt.async_flush()
         freezer.tick(timedelta(seconds=seconds))
         async_fire_time_changed(hass)
         await hass.async_block_till_done()

@@ -37,6 +37,9 @@ async def _setup(hass):
 
 async def _tick(hass, freezer, seconds=10, n=1, report=None):
     for _ in range(n):
+        # The writer wakes on real time while this clock is frozen: drain it first.
+        if (rt := hass.data.get(DOMAIN, {}).get("runtime")) is not None:
+            await rt.async_flush()
         freezer.tick(timedelta(seconds=seconds))
         if report:
             hass.states.async_set(report, "21.0")  # unchanged value: state_reported only
