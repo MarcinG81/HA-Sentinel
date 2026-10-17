@@ -6,7 +6,9 @@ from custom_components.ha_sentinel.core.coverage import CoverageTracker
 from custom_components.ha_sentinel.core.models import (
     CoverageSegment,
     CoverageStatus,
+    Finding,
     FindingStatus,
+    Severity,
 )
 from custom_components.ha_sentinel.modules.doctor.engine import DoctorEngine, DoctorParams
 
@@ -186,3 +188,52 @@ def test_coverage_warmup_completion_time():
     assert cov.complete_at_us(window, T0 + 1200 * S) == T0 + 1100 * S + window
     cov.open_gap(T0 + 2000 * S)
     assert cov.complete_at_us(window, T0 + 2100 * S) is None
+
+
+def test_doc002_needs_a_transition_from_a_known_state():
+    e = engine()
+    e.process(snapshot(UID, "unknown", T0))  # unknown since start: not evidence
+    assert run(e, T0 + 3600 * S) == []
+    e.process(avail(UID, "available", T0 + 3700 * S))
+    e.process(avail(UID, "unknown", T0 + 3800 * S))
+    assert [f.rule_id for f in run(e, T0 + 4400 * S)] == ["DOC002"]
+
+
+def test_doc002_ignores_stateless_domains():
+    e = DoctorEngine(boot_started_us=T0, domain_of=lambda uid: "conversation")
+    e.process(snapshot(UID, "available", T0))
+    e.process(avail(UID, "unknown", T0 + 600 * S))
+    assert run(e, T0 + 3600 * S) == []
+
+
+def test_restored_findings_of_vanished_subjects_are_retired_explicitly():
+    old = Finding(id="f-old", rule_id="DOC002", rule_version=1, subject_uid="gone-uid",
+                  status=FindingStatus.ACTIVE, severity=Severity.WARNING,
+                  first_seen_us=T0 - 10, last_seen_us=T0 - 10)
+    kept = Finding(id="f-kept", rule_id="DOC001", rule_version=1, subject_uid=UID,
+                   status=FindingStatus.ACTIVE, severity=Severity.HIGH,
+                   first_seen_us=T0 - 10, last_seen_us=T0 - 10)
+    e = engine()
+    e.restore([old, kept])
+    e.process(snapshot(UID, "unavailable", T0))
+    retired = e.retire_stale(T0 + 1)
+    assert [f.id for f in retired] == ["f-old"]
+    assert retired[0].details["resolution"] == "subject_identity_ended"
+    assert [f.id for f in e.active_findings()] == ["f-kept"]
+
+
+def test_restored_findings_of_revised_rules_are_retired():
+    def doc002(fid, uid, version):
+        return Finding(id=fid, rule_id="DOC002", rule_version=version, subject_uid=uid,
+                       status=FindingStatus.ACTIVE, severity=Severity.WARNING,
+                       first_seen_us=T0 - 10, last_seen_us=T0 - 10)
+
+    e = DoctorEngine(boot_started_us=T0,
+                     domain_of=lambda uid: "conversation" if uid == "conv" else "sensor")
+    e.restore([doc002("legacy", UID, 1), doc002("stateless", "conv", 2),
+               doc002("current", "other", 2)])
+    for uid in (UID, "conv", "other"):
+        e.process(snapshot(uid, "unknown", T0))
+    retired = {f.id: f.details["resolution"] for f in e.retire_stale(T0 + 1)}
+    assert retired == {"legacy": "rule_revised", "stateless": "rule_revised"}
+    assert [f.id for f in e.active_findings()] == ["current"]

@@ -68,7 +68,12 @@ RULE_SEVERITY = {
     "DOC009": Severity.INFO,  # information, never an automatic upgrade
 }
 MAINTENANCE_RECHECK_S = 60
+# Domains whose normal state is "unknown" (no value until used): never DOC002.
+STATELESS_DOMAINS = frozenset({"button", "input_button", "scene", "event", "conversation",
+                               "tts", "stt", "wake_word", "notify", "ai_task", "image"})
 RULE_VERSION = 1
+# DOC002 v2: only live transitions to "unknown", never stateless domains.
+RULE_VERSIONS = {"DOC002": 2}
 
 
 @dataclass(slots=True)
@@ -92,12 +97,14 @@ class DoctorEngine:
         params: DoctorParams | None = None,
         coverage_complete: CoverageFn | None = None,
         in_maintenance: Callable[[str], bool] | None = None,
+        domain_of: Callable[[str], str | None] | None = None,
     ) -> None:
         self.params = params or DoctorParams()
         self._grace_end_us = boot_started_us + self.params.startup_grace_s * S
         self._coverage_complete = coverage_complete or (lambda _f, _t: True)
         # Planned maintenance suppresses new failures of its subjects (spec 8.2).
         self._in_maintenance = in_maintenance or (lambda _uid: False)
+        self._domain_of = domain_of or (lambda _uid: None)
         self._entities: dict[str, _EntityState] = {}
         self._findings: dict[str, Finding] = {}  # fingerprint -> pending/active
         self._heap: list[tuple[int, int, str, str, int]] = []
@@ -116,6 +123,35 @@ class DoctorEngine:
 
     def active_findings(self) -> list[Finding]:
         return [f for f in self._findings.values() if f.status is FindingStatus.ACTIVE]
+
+    def retire_stale(self, now_us: int) -> list[Finding]:
+        """Close restored findings that can no longer be valid in this boot.
+
+        - the subject does not exist any more: entities without a registry entry get a
+          new identity every boot (spec 6.1), so their findings would stay open forever;
+        - the finding was raised by an older version of its rule;
+        - DOC002 on a stateless domain.
+        They are closed with an explicit reason, never presented as a recovery.
+        """
+        out = []
+        for fp, f in list(self._findings.items()):
+            if f.status is not FindingStatus.ACTIVE:
+                continue
+            if f.rule_id in ("DOC001", "DOC002", "DOC003", "DOC004", "DOC009") \
+                    and f.subject_uid not in self._entities:
+                reason = "subject_identity_ended"
+            elif f.rule_version < RULE_VERSIONS.get(f.rule_id, RULE_VERSION) or (
+                    f.rule_id == "DOC002"
+                    and self._domain_of(f.subject_uid) in STATELESS_DOMAINS):
+                reason = "rule_revised"
+            else:
+                continue
+            del self._findings[fp]
+            f.status = FindingStatus.RESOLVED
+            f.resolved_at_us = f.last_seen_us = now_us
+            f.details = {**f.details, "resolution": reason}
+            out.append(f)
+        return out
 
     def availability_snapshot(self) -> dict[str, Availability]:
         """Current availability of every subject seen in this boot (for correlation)."""
@@ -202,8 +238,12 @@ class DoctorEngine:
             if not is_snapshot and prev is not None:
                 out += self._record_flap_entry(uid, st, st.since_us)
         elif new is Availability.UNKNOWN:
-            self._push(max(st.since_us + self.params.unknown_s * S, self._grace_end_us),
-                       uid, "mature_unknown", st.token)
+            # Only a change from a known state counts: an entity unknown since the
+            # baseline (never set, stateless) is not evidence that something stopped.
+            if prev is not None and not is_snapshot \
+                    and self._domain_of(uid) not in STATELESS_DOMAINS:
+                self._push(max(st.since_us + self.params.unknown_s * S, self._grace_end_us),
+                           uid, "mature_unknown", st.token)
         else:
             if self._has_active(uid, ("DOC001", "DOC002")):
                 self._push(
@@ -336,7 +376,7 @@ class DoctorEngine:
         f = Finding(
             id=new_uuid(),
             rule_id=rule,
-            rule_version=RULE_VERSION,
+            rule_version=RULE_VERSIONS.get(rule, RULE_VERSION),
             subject_uid=uid,
             status=FindingStatus.ACTIVE,
             severity=RULE_SEVERITY[rule],

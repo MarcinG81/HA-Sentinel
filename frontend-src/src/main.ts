@@ -777,12 +777,16 @@ class SentinelPanel extends HTMLElement {
       h("h2", { id: "h-met" }, t("diag.metrics")),
       h("p", { class: "muted" }, t("diag.metrics_hint")),
       h(
+        "div",
+        { class: "scroll", tabindex: "0", role: "region", "aria-labelledby": "h-met" },
+        h(
         "table",
-        {},
-        h("thead", {}, h("tr", {}, ["", "n", "p50", "p95", "p99", "max"].map((c) => h("th", { scope: "col" }, c)))),
+        { class: "metrics" },
+        h("thead", {}, h("tr", {}, [h("span", { class: "sr-only" }, t("diag.metric")), "n", "p50", "p95", "p99", "max"].map((c) => h("th", { scope: "col" }, c)))),
         h("tbody", {}, Object.entries(m.histograms).map(([name, x]) =>
           h("tr", {}, h("th", { scope: "row" }, h("code", {}, `${name}`)), h("td", {}, String(x.count)),
             h("td", {}, fmt(x.p50)), h("td", {}, fmt(x.p95)), h("td", {}, fmt(x.p99)), h("td", {}, fmt(x.max))))),
+        ),
       ),
       h("p", { class: "muted" }, `${t("diag.queue_max")}: ${m.queue_depth_max}`),
     );

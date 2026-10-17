@@ -123,6 +123,7 @@ class SentinelRuntime:
             params=self.doctor_params,
             coverage_complete=self.coverage.is_complete,
             in_maintenance=lambda uid: self.maintenance.covers(uid),
+            domain_of=lambda uid: (e.domain if (e := self.inventory.get(uid)) else None),
         )
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None
@@ -190,6 +191,11 @@ class SentinelRuntime:
             await self.db.run(lambda c: repo.insert_coverage(c, self.coverage.gaps))
 
         self._build_capabilities(mode)
+        # Process the baseline now so stale findings (subjects gone since the last boot,
+        # revised rules) are closed explicitly before anything else is correlated.
+        await self.async_flush()
+        if stale := self.doctor.retire_stale(snapshot_done_us):
+            await self._commit_findings(stale)
         self._writer_task = self.entry.async_create_background_task(
             self.hass, self._writer_loop(), f"{DOMAIN}_writer"
         )

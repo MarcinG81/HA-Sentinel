@@ -157,6 +157,10 @@ table.diff th, table.edges th { width: auto; }
 table.features { width: auto; margin-top: 8px; }
 table.features th, table.features td { width: auto; text-align: center; padding: 4px 10px; font-variant-numeric: tabular-nums; }
 .small-text { font-size: 12px; }
+table.metrics th, table.metrics td { width: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.metrics td { text-align: right; }
+.scroll { overflow-x: auto; }
+.scroll:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 fieldset.plain { border: 0; padding: 0; margin: 0; }
 fieldset.plain legend { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 4px; }
 button.danger { background: var(--s-danger-bg); border-color: var(--s-danger-bg); }
