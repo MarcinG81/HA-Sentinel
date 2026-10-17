@@ -71,3 +71,7 @@ npm run a11y -- "/path/to/chrome"      # axe-core WCAG 2.1 AA audit of every vie
 
 The built bundle is committed: HACS installs never run npm. Code and comments are in
 English; the specification and plan are in Polish.
+
+## License
+
+GPL-3.0, see [LICENSE](LICENSE).
