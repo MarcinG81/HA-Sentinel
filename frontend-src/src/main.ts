@@ -751,7 +751,7 @@ class SentinelPanel extends HTMLElement {
       case "not_found":
         return t("err.not_found");
       case "storage_unavailable":
-        return t("err.storage");
+        return d.reason === "audit_budget" ? t("err.audit_budget") : t("err.storage");
       case "validation_failed":
         if (d.entity_id) return t("err.unknown_entity").replace("{entity}", d.entity_id);
         if (d.param && d.min !== undefined && d.max !== undefined) {

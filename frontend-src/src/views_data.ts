@@ -160,12 +160,18 @@ export async function renderDataCard(ctx: Ctx): Promise<HTMLElement> {
     "section",
     { class: "card", "aria-labelledby": "h-data" },
     h("h2", { id: "h-data" }, t("data.title")),
+    st.audit_blocked ? h("div", { class: "banner error", role: "alert" }, t("err.audit_budget")) : null,
     h(
       "table",
       {},
       h("tbody", {},
         h("tr", {}, h("th", { scope: "row" }, t("data.db_size")), h("td", {}, `${mib} MiB`)),
         h("tr", {}, h("th", { scope: "row" }, t("data.observations")), h("td", {}, String(st.storage.observations))),
+        st.storage.aggregates !== undefined ? h("tr", {}, h("th", { scope: "row" }, t("data.aggregates")), h("td", {}, String(st.storage.aggregates))) : null,
+        st.storage.snapshots !== undefined ? h("tr", {}, h("th", { scope: "row" }, t("data.snapshots")), h("td", {}, String(st.storage.snapshots))) : null,
+        st.storage.audit_bytes !== undefined && st.audit_budget_bytes
+          ? h("tr", {}, h("th", { scope: "row" }, t("data.audit")), h("td", {}, `${(st.storage.audit_bytes / 1048576).toFixed(1)} / ${(st.audit_budget_bytes / 1048576).toFixed(0)} MiB`))
+          : null,
         retention,
         h("tr", {}, h("th", { scope: "row" }, t("data.last_purge")), h("td", {}, st.last_purge ? ctx.date(st.last_purge.at, true) : t("data.never"))),
       ),

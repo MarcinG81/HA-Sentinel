@@ -27,6 +27,7 @@ from .core.clock import datetime_to_us, us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
 from .core.models import CapabilityStatus, ModuleState, is_uuid4, new_uuid
 from .core.ratelimit import RequestClass
+from .data_services import AUDIT_BUDGET_BYTES
 from .modules.autopilot.draft import DraftSpec
 from .modules.doctor.overrides import PARAM_RANGES
 from .repositories import history, jobs
@@ -154,6 +155,10 @@ MODULE_OF_PREFIX = {
 }
 
 
+# Still allowed when the audit log is full, so the admin can always free space.
+AUDIT_EXEMPT = frozenset({"data/delete", "modules/resume"})
+
+
 def _require_module(runtime, command: str) -> None:
     name = command.removeprefix(f"{DOMAIN}/")
     for prefix, module in MODULE_OF_PREFIX.items():
@@ -175,6 +180,10 @@ def _guarded(cls: RequestClass) -> Callable:
                 if not runtime.rate_limiter.allow(connection.user.id, cls):
                     raise SentinelError(ErrorCode.RATE_LIMITED, "too many requests")
                 _require_module(runtime, msg["type"])
+                if (cls is RequestClass.MUTATION and runtime.audit_blocked
+                        and msg["type"].removeprefix(f"{DOMAIN}/") not in AUDIT_EXEMPT):
+                    raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "audit log is full",
+                                        reason="audit_budget")
                 await func(hass, connection, msg, runtime)
             except SentinelError as err:
                 error: dict[str, Any] = {"code": str(err.code), "message": str(err)}
@@ -820,6 +829,8 @@ async def ws_data_status(hass, connection, msg, runtime) -> None:
     last = data.last_purge
     connection.send_result(msg["id"], {
         "storage": stats,
+        "audit_budget_bytes": AUDIT_BUDGET_BYTES,
+        "audit_blocked": runtime.audit_blocked,
         "retention": {k: v for k, v in opts.items() if k.startswith(("retention_", "storage_"))},
         "last_purge": ({**{k: v for k, v in last.items() if k != "at_us"},
                         "at": us_to_rfc3339(last["at_us"])} if last else None),

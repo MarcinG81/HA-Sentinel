@@ -18,6 +18,7 @@ DAY_US = 24 * 3600 * 1_000_000
 JOB_RESULT_TTL_US = DAY_US
 HEAVY_JOB_KINDS = ("export",)
 MAX_HEAVY_JOBS = 2
+SNAPSHOTS_PER_RESOURCE = 50
 PURGE_BATCH = 5000
 
 
@@ -143,11 +144,31 @@ def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int
     """Delete at most PURGE_BATCH rows per class; call repeatedly until it returns zeros."""
     counts: dict[str, int] = {}
     with _tx(conn):
+        cutoff = now_us - observations_days * DAY_US
+        # Samples leaving the retention survive as minute aggregates (spec 7.3).
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS purge_ids(id TEXT PRIMARY KEY)")
+        conn.execute("DELETE FROM purge_ids")
+        conn.execute("INSERT INTO purge_ids SELECT id FROM observations WHERE received_at_us < ? "
+                     "LIMIT ?", (cutoff, PURGE_BATCH))
+        _aggregate(conn, "SELECT o.subject_uid, "
+                   "COALESCE(json_extract(o.payload_json, '$.purpose'), 'battery') AS kind, "
+                   "(o.received_at_us / 60000000) * 60000000 AS bucket, COUNT(*) AS n, "
+                   "MIN(v) AS vmin, MAX(v) AS vmax, SUM(v) AS vsum FROM (SELECT *, "
+                   "CAST(json_extract(payload_json, '$.value') AS REAL) AS v FROM observations) o "
+                   "JOIN purge_ids p ON p.id = o.id WHERE o.kind = 'numeric.sample' "
+                   "AND o.subject_uid IS NOT NULL AND v IS NOT NULL "
+                   "GROUP BY o.subject_uid, kind, bucket", "minute")
         counts["observations"] = conn.execute(
-            "DELETE FROM observations WHERE id IN (SELECT id FROM observations "
-            "WHERE received_at_us < ? LIMIT ?)",
-            (now_us - observations_days * DAY_US, PURGE_BATCH),
-        ).rowcount
+            "DELETE FROM observations WHERE id IN (SELECT id FROM purge_ids)").rowcount
+        # Minute buckets older than 30 days become hourly; hourly ones are kept a year.
+        _aggregate(conn, "SELECT subject_uid, kind, (bucket_us / 3600000000) * 3600000000, "
+                   "SUM(n), MIN(vmin), MAX(vmax), SUM(vsum) FROM numeric_aggregates WHERE "
+                   f"granularity='minute' AND bucket_us < {now_us - 30 * DAY_US} "
+                   "GROUP BY subject_uid, kind, 3", "hour")
+        counts["aggregates"] = conn.execute(
+            "DELETE FROM numeric_aggregates WHERE (granularity='minute' AND bucket_us < ?) "
+            "OR (granularity='hour' AND bucket_us < ?)",
+            (now_us - 30 * DAY_US, now_us - 365 * DAY_US)).rowcount
         counts["probe_results"] = conn.execute(
             "DELETE FROM probe_results WHERE rowid IN (SELECT rowid FROM probe_results "
             "WHERE at_us < ? LIMIT ?)",
@@ -178,6 +199,12 @@ def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int
             conn.execute(f"DELETE FROM finding_evidence WHERE finding_id IN ({marks})", chunk)
             conn.execute(f"DELETE FROM findings WHERE id IN ({marks})", chunk)
         counts["findings"] = len(old_findings)
+        # Snapshots: at most SNAPSHOTS_PER_RESOURCE per resource (newest kept, spec 7.3).
+        counts["snapshots_capped"] = conn.execute(
+            "DELETE FROM snapshots WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER "
+            "(PARTITION BY resource_id ORDER BY created_us DESC, rowid DESC) AS rn "
+            "FROM snapshots) WHERE rn > ? LIMIT ?)",
+            (SNAPSHOTS_PER_RESOURCE, PURGE_BATCH)).rowcount
         # Snapshots: older than 30 days, but always keep the newest per resource.
         counts["snapshots"] = conn.execute(
             "DELETE FROM snapshots WHERE id IN (SELECT s.id FROM snapshots s WHERE "
@@ -195,6 +222,18 @@ def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int
             (now_us - audit_days * DAY_US, PURGE_BATCH),
         ).rowcount
     return counts
+
+
+def _aggregate(conn: sqlite3.Connection, select_sql: str, granularity: str) -> None:
+    """Merge (subject, kind, bucket, n, min, max, sum) rows into numeric_aggregates."""
+    rows = conn.execute(select_sql).fetchall()
+    conn.executemany(
+        "INSERT INTO numeric_aggregates(subject_uid, kind, granularity, bucket_us, n, vmin, "
+        "vmax, vsum) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(subject_uid, kind, granularity, "
+        "bucket_us) DO UPDATE SET n = n + excluded.n, vmin = MIN(vmin, excluded.vmin), "
+        "vmax = MAX(vmax, excluded.vmax), vsum = vsum + excluded.vsum",
+        [(r[0], r[1] if r[1] in ("battery", "signal") else "battery", granularity, r[2], r[3],
+          r[4], r[5], r[6]) for r in rows])
 
 
 def referenced_blobs(conn: sqlite3.Connection) -> set[str]:

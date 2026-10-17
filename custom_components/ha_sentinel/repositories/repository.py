@@ -606,8 +606,19 @@ def storage_stats(conn: sqlite3.Connection) -> dict:
     return {
         "db_bytes": page_count * page_size,
         "observations": conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0],
+        "aggregates": conn.execute("SELECT COUNT(*) FROM numeric_aggregates").fetchone()[0],
+        "snapshots": conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0],
+        "audit_bytes": audit_bytes(conn),
         "schema_version": conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0],
     }
+
+
+def audit_bytes(conn: sqlite3.Connection) -> int:
+    """Logical size of the audit log (spec 7.3 budget), not counting index pages."""
+    return conn.execute(
+        "SELECT COALESCE(SUM(LENGTH(id) + LENGTH(COALESCE(actor_id, '')) + LENGTH(request_id) "
+        "+ LENGTH(operation) + LENGTH(COALESCE(resource_id, '')) + LENGTH(result) + 8), 0) "
+        "FROM audit").fetchone()[0]
 
 
 class _tx:

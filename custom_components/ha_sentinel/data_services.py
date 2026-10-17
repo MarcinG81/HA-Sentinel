@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 PURGE_INTERVAL = timedelta(hours=1)
 EXPORT_TTL_US = jobs.JOB_RESULT_TTL_US
+AUDIT_BUDGET_BYTES = 64 * 1024 * 1024  # spec 7.3
 MAX_PURGE_ROUNDS = 200
 
 
@@ -91,11 +92,19 @@ class DataServices:
                 continue
         return total
 
+    async def check_audit_budget(self) -> bool:
+        """Audit over its budget blocks new mutations (spec 7.3); purge may free it."""
+        used = await self.rt.db.run(repo.audit_bytes)
+        self.rt.audit_blocked = used > AUDIT_BUDGET_BYTES
+        return self.rt.audit_blocked
+
     async def check_pressure(self) -> int:
         """Soft 80 % / hard 95 % of the storage budget; resolves below 75 %."""
         opts = {**DEFAULT_OPTIONS, **self.rt.entry.options}
         budget = int(opts[OPT_STORAGE_MAX_TOTAL_MIB]) * 1024 * 1024
         used = await self.hass.async_add_executor_job(self._usage_bytes)
+        if self.rt.storage_writable:
+            await self.check_audit_budget()
         self.storage_ratio = used / budget if budget else 0.0
         level = 2 if self.storage_ratio >= 0.95 else 1 if self.storage_ratio >= 0.80 else 0
         if level == 0 and self.storage_level and self.storage_ratio >= 0.75:
@@ -266,6 +275,7 @@ class DataServices:
         refs = await self.rt.db.run(jobs.referenced_blobs)
         totals["blobs"] = await self.hass.async_add_executor_job(self._purge_files, refs)
         await self.rt.db.run(lambda c: c.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall())
+        await self.check_audit_budget()
         self.last_purge = {"at_us": self.rt.clock.now_us(), **totals}
         return totals
 

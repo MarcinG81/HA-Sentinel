@@ -181,7 +181,7 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | G11 | Korelacja: `recurrence_of` dla nawrotu po resolved, hipoteza `change_related` (snapshot zasobu na ścieżce w ostatnich 30 min) | 9.1, 9.2 | **zrobione** |
 | G12 | Uzgadnianie rejestrów co 15 min (fallback i świeżość w UI), `suggested_same_as` przy delete/recreate urządzenia | 5.1, 6.1 | **zrobione** |
 | G13 | Backup HA: stan encji backup i link; `backup.create` jako jawna operacja admina (przyjęcie ≠ ukończenie) | 10.5 | **zrobione** |
-| G14 | Budżety klas danych: audyt (limit blokuje mutacje), 50 snapshotów na zasób, agregaty minutowe/godzinowe telemetrii | 7.3 | do zrobienia |
+| G14 | Budżety klas danych: audyt (limit blokuje mutacje), 50 snapshotów na zasób, agregaty minutowe/godzinowe telemetrii | 7.3 | **zrobione** |
 
 ### Wymaga prawdziwych instalacji (poza kodem)
 
@@ -282,3 +282,10 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - `backup/create`: jawna operacja admina z potwierdzeniem; preferowane `backup.create_automatic` (lokalizacje i szyfrowanie z ustawień), inaczej `backup.create`. Wywołanie w kontekście użytkownika (HA ponownie sprawdza uprawnienia admina), audyt przed skutkiem i po nim.
 - Czekamy tylko na przyjęcie (usługa wraca po starcie kopii, limit 30 s): odmowa HA (np. brak miejsca zapisu) jest zgłaszana jako `conflict/backup_rejected` bez treści wyjątku; przyjęcie ≠ ukończenie — wynik widać w encjach kopii.
 - Panel: komunikaty `conflict` rozróżniają incydent, konflikt tożsamości hosta i inne konflikty.
+
+### G14 — decyzje
+
+- Agregaty liczbowe (migracja v14): próbki wychodzące z retencji obserwacji stają się kubełkami minutowymi (n, min, max, suma; bateria i sygnał osobno), minutowe po 30 dniach → godzinowe, godzinowe trzymane rok. Purge partiami jak dotąd.
+- Snapshoty: maks. 50 na zasób (egzekwowane przy zapisie i dodatkowo w purge), najnowszy zawsze zostaje.
+- Audyt: budżet 64 MiB liczony co 5 min i po purge; przekroczenie blokuje mutacje (`storage_unavailable/audit_budget`) poza usuwaniem danych i wznowieniem modułu. Karta danych pokazuje rozmiary klas i stan budżetu.
+- Testy z zamrożonym zegarem: writer budzi się w czasie rzeczywistym, więc po zmianie stanu test jawnie opróżnia kolejkę przed przeskokami czasu.

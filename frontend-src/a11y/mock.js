@@ -59,6 +59,6 @@ export const DATA = {
     queues: { depth: 0, capacity: 10000, received_total: 5321, dropped_total: 0, degraded: false },
     storage: { db_bytes: 3145728, observations: 5321, schema_version: 6, mode: "read_write" }, coverage_gaps: [],
     doctor: { active_findings: 3, flapping_partial: 0, next_deadline: null }, metrics: { counters: {}, histograms: { ingestion_callback_us: { unit: "us", count: 6000, p50: 4.1, p95: 8.9, p99: 12.3, max: 210 }, writer_commit_ms: { unit: "ms", count: 61, p50: 3.2, p95: 9.8, p99: 14, max: 22 } }, queue_depth_max: 1000 } },
-  "ha_sentinel/data/status": { storage: { db_bytes: 3145728, observations: 5321, schema_version: 6 },
+  "ha_sentinel/data/status": { storage: { db_bytes: 3145728, observations: 5321, schema_version: 14, aggregates: 1200, snapshots: 12, audit_bytes: 524288 }, audit_budget_bytes: 67108864, audit_blocked: true,
     retention: { retention_observations_days: 7, retention_incidents_days: 90, storage_max_total_mib: 1024 }, last_purge: null },
 };

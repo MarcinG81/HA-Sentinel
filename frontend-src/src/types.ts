@@ -313,7 +313,9 @@ export interface JobInfo {
 }
 
 export interface DataStatus {
-  storage: { db_bytes: number; observations: number; schema_version: number };
+  storage: { db_bytes: number; observations: number; schema_version: number; aggregates?: number; snapshots?: number; audit_bytes?: number };
+  audit_budget_bytes?: number;
+  audit_blocked?: boolean;
   retention: Record<string, number>;
   last_purge: (Record<string, number | string> & { at: string }) | null;
 }

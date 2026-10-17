@@ -84,10 +84,14 @@ async def test_recurrence_and_change_related(hass, hass_ws_client, freezer):
     await client.close()
 
     hass.states.async_set("switch.pump", "on")
+    await runtime.async_flush()  # the writer wakes on real time; the clock here is frozen
     await _tick(hass, freezer, 40, n=2)
+    await runtime.async_flush()
+    await runtime.async_correlate()  # the counter is refreshed by the background correlation
     assert runtime.active_incidents == 0
     await _tick(hass, freezer, 3600)  # outside the change window now
     hass.states.async_set("switch.pump", STATE_UNAVAILABLE)
+    await runtime.async_flush()
     await _tick(hass, freezer, 30, n=4)
     # (time jumps outlive the WS token: read through the repository)
     active = await runtime.db.run(repo.load_active_incidents)

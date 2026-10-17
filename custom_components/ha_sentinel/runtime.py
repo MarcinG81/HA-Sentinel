@@ -165,6 +165,7 @@ class SentinelRuntime:
         self.identity = IdentityService(self)
         self.backup = BackupService(self)
         self.registry_synced_us: int | None = None
+        self.audit_blocked = False  # audit log over budget: no new mutations (spec 7.3)
         # entity_id -> explicit numeric sources (manual battery mapping, signal scales).
         self._numeric_aliases: dict[str, list[NumericSource]] = {}
         self.doctor = DoctorEngine(
