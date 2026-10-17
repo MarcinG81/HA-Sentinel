@@ -17,7 +17,7 @@
 | **E1** | Scaffold i CI (B04), DTO/clock/enums (B05), SQLite + migracja v1 (B06), kolejki + writer + coverage (B07), inventory (B08) | **zrobione (bez metryk i purge)** |
 | E2 | Config flow + capabilities (B09), Doctor DOC001–DOC005 (B10), incidents/outbox/ACK (B11), API + policy + rate limit (B16), panel overview (B17) | B09, B10, B16, B17 zrobione; B11 bez wysyłki powiadomień z outbox (persistent notification opt-in) |
 | E3 | AST YAML (B12), graf + impact BFS (B13), snapshot/canonicalizer/diff (B14), lint AUT001–010 (B15), panel (B18) | **zrobione** (graf w pamięci, bez wersjonowania — to R1) |
-| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19, B23 zrobione; retencja/purge (REQ10) zrobione |
+| E4 | RCA (B19), provider M + journal (B20), sondy N1 (B21), replay (B22), eksport (B23), upgrade (B24) | B19, B20, B23 zrobione; retencja/purge (REQ10) zrobione |
 | E5 | Load/soak (B25), E2E/a11y (B26), pilot (B27) | — |
 
 ## Krytyczna ścieżka MVP
@@ -88,3 +88,14 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Purge co godzinę partiami po 5000: obserwacje (retencja), zamknięte incydenty i findings (aktywne nigdy), snapshoty > 30 dni poza najnowszym, joby > 24 h, audyt > 180 dni, osierocone bloby i stare eksporty, checkpoint WAL bez VACUUM. Budżet rozmiaru (soft/hard) i DOC010 — jeszcze nie.
 - Po restarcie joby `queued`/`running` przechodzą w `interrupted` (bez ślepego ponawiania).
 - Testy: heartbeat WS serwera HA zamyka bezczynnego klienta testowego przy masowym odpalaniu timerów — klienta WS tworzyć po przesunięciu czasu.
+
+## E4 / B20 — pliki zarządzane i bezpieczne przywracanie
+
+- Zapis domyślnie wyłączony (opcja `managed_write_enabled`); katalog z allowlisty `managed_dir` (domyślnie `ha_sentinel_managed`); include w `configuration.yaml` dodaje admin ręcznie — Sentinel nigdy go nie edytuje.
+- Rejestracja wymaga: ścieżki względnej bez `..`, `.yaml/.yml`, braku symlinków w całej ścieżce (lstat każdego segmentu), realpath w allowliście, zwykłego pliku, właściciela = proces HA, braku zapisu dla grupy/innych, ≤ 1 MiB, braku jawnych sekretów, jawnego potwierdzenia wyłącznej własności.
+- Preview → plan (`base_hash` bieżącego pliku, `target_hash`, diff, lint, wpływ, `expected_ids`, `plan_hash`, TTL 10 min, `policy_revision` = hash opcji). Apply tylko przez tego samego, nadal aktywnego admina, dla planu `previewed`, przed wygaśnięciem i bez zmiany polityki.
+- Apply: snapshot „before” + operacja `prepared` + audyt w jednej transakcji (bez tego brak zapisu — T13) → temp + fsync → ponowne sprawdzenie hasha tuż przed `os.replace` → fsync katalogu → `file_written` → `automation.reload` → weryfikacja widoczności id → `applied`. Błąd reloadu/weryfikacji → rollback tylko gdy plik ma nadal `after_hash`; obca zmiana → `manual_recovery_required` bez nadpisania.
+- Recovery przy starcie: plany `applying` rozstrzygane z fazy dziennika i rzeczywistego hasha pliku (`applied` / `manual_reload_required` / `failed` / `manual_recovery_required`), nigdy ponowny apply; usuwane osierocone pliki tymczasowe.
+- Fault injection (T14) w 9 punktach: plik zawsze w całości stary albo nowy.
+- Znalezione testami: (1) wyjątek dziennika po udanym reloadzie wywołałby rollback — `try` zawężony do samego reloadu; (2) lambda zwracająca kursor `PRAGMA wal_checkpoint` zostawiała aktywną instrukcję i psuła każdy kolejny COMMIT — naprawione, a `DatabaseWorker.run` odrzuca zwracanie kursorów.
+- Weryfikacja na żywym HA 2026.10.2: rejestracja, edycja z zewnątrz, sync, podgląd, przywrócenie z prawdziwym `automation.reload`.

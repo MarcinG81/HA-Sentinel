@@ -32,8 +32,13 @@ def save_snapshot(
     actor_id: str | None,
     request_id: str,
     now_us: int,
+    restorable: bool = False,
+    locator: dict[str, Any] | None = None,
+    write_policy: str = "export_only",
 ) -> dict[str, Any]:
     """Store a snapshot; identical canonical and raw content is deduplicated.
+
+    Only snapshots of managed files (type M) with the raw original kept are restorable.
 
     The caller owns the transaction (see repository.run_idempotent) when it needs
     idempotency; otherwise use save_snapshot_tx.
@@ -45,8 +50,8 @@ def save_snapshot(
         conn.execute(
             "INSERT INTO resources(id, provider, locator_json, current_hash, write_policy, kind, "
             "label, created_us) VALUES (?,?,?,?,?,?,?,?)",
-            (resource_id, provider, dumps_strict({"label": label}), canonical_hash,
-             "export_only", kind, label, now_us),
+            (resource_id, provider, dumps_strict(locator or {"label": label}), canonical_hash,
+             write_policy, kind, label, now_us),
         )
     else:
         row = conn.execute("SELECT kind FROM resources WHERE id=?", (resource_id,)).fetchone()
@@ -75,7 +80,7 @@ def save_snapshot(
         "restorable, raw_hash, raw_blob_ref, redacted_paths_json, validation_json, "
         "parser_version, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (snapshot_id, resource_id, canonical_hash, blob_ref, now_us, 1,
-         0,  # MVP: import snapshots are export only; restore of managed files is R1 (B20)
+         1 if restorable and raw is not None else 0,
          raw_hash, raw_ref, dumps_strict(redacted_paths), dumps_strict(validation), 1,
          actor_id),
     )
@@ -173,3 +178,35 @@ def latest_imports(conn: sqlite3.Connection, blobs: BlobStore) -> list[dict[str,
         "WHERE r.kind IN ('automation','script','blueprint')"
     ).fetchall()
     return [{**dict(r), "tree": json.loads(blobs.get(r["blob_ref"]))} for r in rows]
+
+
+def get_resource(conn: sqlite3.Connection, resource_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT id, provider, kind, label, write_policy, locator_json, current_hash "
+        "FROM resources WHERE id=?", (resource_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    out["locator"] = json.loads(out.pop("locator_json"))
+    return out
+
+
+def find_managed(conn: sqlite3.Connection, relative_path: str) -> str | None:
+    row = conn.execute(
+        "SELECT id FROM resources WHERE provider='managed' "
+        "AND json_extract(locator_json, '$.path')=?", (relative_path,),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def snapshot_raw(conn: sqlite3.Connection, blobs: BlobStore, snapshot_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT id, resource_id, raw_hash, raw_blob_ref, restorable FROM snapshots WHERE id=?",
+        (snapshot_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": row["id"], "resource_id": row["resource_id"], "raw_hash": row["raw_hash"],
+            "restorable": bool(row["restorable"]),
+            "raw": blobs.get(row["raw_blob_ref"]) if row["raw_blob_ref"] else None}

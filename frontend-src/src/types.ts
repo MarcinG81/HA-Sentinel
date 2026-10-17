@@ -282,3 +282,20 @@ export interface DataStatus {
   retention: Record<string, number>;
   last_purge: (Record<string, number | string> & { at: string }) | null;
 }
+
+// --- B20: managed files ------------------------------------------------------------------
+
+export interface RestorePreview {
+  plan_id: string;
+  plan_hash: string;
+  resource_id: string;
+  base_hash: string;
+  target_hash: string;
+  expires_at: string;
+  state: string;
+  reload: boolean;
+  diff: { semantic: DiffResult["semantic"]; textual: string[] };
+  validation: { parser: string; lint: Record<string, number>; completeness: number };
+  impact: { automations: string[]; entities: string[] };
+  expected_ids: string[];
+}

@@ -77,6 +77,11 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_jobs_cancel,
         ws_data_status,
         ws_data_delete,
+        ws_managed_register,
+        ws_managed_sync,
+        ws_changes_preview,
+        ws_changes_apply,
+        ws_changes_get,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -708,3 +713,92 @@ async def ws_data_delete(hass, connection, msg, runtime) -> None:
         raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
     result = await _data(runtime).delete_scope(msg["scope"], connection.user.id)
     connection.send_result(msg["id"], result)
+
+
+# --- Managed files: register, preview, apply (B20) ------------------------------------------
+
+
+def _changes(runtime):
+    if runtime.changes is None:
+        raise SentinelError(ErrorCode.NOT_READY, "change service is not ready")
+    return runtime.changes
+
+
+@websocket_api.websocket_command(
+    _schema("managed/register")
+    | {
+        vol.Required("relative_path"): vol.All(str, vol.Length(min=1, max=255)),
+        vol.Required("label"): vol.All(str, vol.Length(min=1, max=120)),
+        vol.Required("exclusive_owner_confirmed"): bool,
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_managed_register(hass, connection, msg, runtime) -> None:
+    """Register a file Sentinel exclusively owns. It never edits configuration.yaml."""
+    result = await _changes(runtime).register(
+        msg["relative_path"], msg["label"], msg["exclusive_owner_confirmed"],
+        connection.user.id, msg["request_key"])
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("managed/sync") | {vol.Required("resource_id"): _uuid,
+                               vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_managed_sync(hass, connection, msg, runtime) -> None:
+    result = await _changes(runtime).sync(msg["resource_id"], connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("changes/preview")
+    | {vol.Required("resource_id"): _uuid, vol.Required("snapshot_id"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_changes_preview(hass, connection, msg, runtime) -> None:
+    """Create a plan with diff, validation, impact and a 10 minute TTL (spec 10.4)."""
+    result = await _changes(runtime).preview(msg["resource_id"], msg["snapshot_id"],
+                                             connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("changes/apply")
+    | {
+        vol.Required("plan_id"): _uuid,
+        vol.Required("plan_hash"): vol.Match(r"^sha256:[a-f0-9]{64}$"),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_changes_apply(hass, connection, msg, runtime) -> None:
+    result = await _changes(runtime).start_apply(
+        msg["plan_id"], msg["plan_hash"], msg["request_key"], _request_hash(msg),
+        connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(_schema("changes/get") | {vol.Required("plan_id"): _uuid})
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_changes_get(hass, connection, msg, runtime) -> None:
+    plan = await _changes(runtime)._load_plan(msg["plan_id"])
+    report = plan["report"]
+    connection.send_result(msg["id"], {
+        "plan_id": plan["id"], "resource_id": plan["resource_id"], "state": plan["state"],
+        "plan_hash": plan["plan_hash"], "base_hash": plan["base_hash"],
+        "target_hash": plan["target_hash"], "expires_at": us_to_rfc3339(plan["expires_us"]),
+        "detail": report.get("result_detail"), "validation": report.get("validation"),
+        "impact": report.get("impact"),
+    })

@@ -49,6 +49,9 @@ OPT_RETENTION_OBSERVATIONS_DAYS = "retention_observations_days"
 OPT_RETENTION_INCIDENTS_DAYS = "retention_incidents_days"
 OPT_DOCTOR_STARTUP_GRACE_S = "doctor_startup_grace_s"
 OPT_DOCTOR_UNAVAILABLE_S = "doctor_unavailable_s"
+OPT_MANAGED_WRITE_ENABLED = "managed_write_enabled"
+OPT_MANAGED_DIR = "managed_dir"
+OPT_MANAGED_RELOAD = "managed_reload_after_apply"
 
 DEFAULT_OPTIONS: dict[str, object] = {
     OPT_MODULES_DOCTOR: True,
@@ -61,6 +64,10 @@ DEFAULT_OPTIONS: dict[str, object] = {
     OPT_RETENTION_INCIDENTS_DAYS: 90,
     OPT_DOCTOR_STARTUP_GRACE_S: STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S: DOC001_UNAVAILABLE_S,
+    # Writing managed files is off until the admin enables it (spec 18.2 step 6).
+    OPT_MANAGED_WRITE_ENABLED: False,
+    OPT_MANAGED_DIR: "ha_sentinel_managed",
+    OPT_MANAGED_RELOAD: True,
 }
 
 # Domains excluded from observation by default (spec 5.1, 17.1)

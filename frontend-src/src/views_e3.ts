@@ -5,6 +5,7 @@
 import type { Ctx } from "./ctx.ts";
 import { h, uuid4 } from "./dom.ts";
 import { contentHash } from "./sha256.ts";
+import { managedCapability, openRestorePreview, renderRegisterCard, renderRestorePreview, syncManaged } from "./views_restore.ts";
 import type {
   DiffResult,
   ExportText,
@@ -54,11 +55,15 @@ function codeBlock(text: string, highlight?: { from: number; to: number }, windo
 
 export async function renderHistory(ctx: Ctx): Promise<HTMLElement> {
   const { t, state } = ctx;
+  if (state.restore) return renderRestorePreview(ctx);
   if (state.diff) return renderDiff(ctx, state.diff.from, state.diff.to);
   if (state.preview) return renderPreview(ctx);
   if (state.resourceId) return renderResource(ctx, state.resourceId);
 
-  const { items } = await ctx.ws<{ items: Resource[] }>({ type: "ha_sentinel/resources/list" });
+  const [{ items }, cap] = await Promise.all([
+    ctx.ws<{ items: Resource[] }>({ type: "ha_sentinel/resources/list" }),
+    managedCapability(ctx),
+  ]);
   const list =
     items.length === 0
       ? h("p", { class: "muted" }, t("history.empty"))
@@ -82,8 +87,9 @@ export async function renderHistory(ctx: Ctx): Promise<HTMLElement> {
     "div",
     { class: "stack" },
     h("div", { class: "banner", role: "note" }, t("history.scope_note")),
-    importCard(ctx),
     h("section", { class: "card", "aria-labelledby": "h-res" }, h("h2", { id: "h-res" }, t("history.resources")), list),
+    importCard(ctx),
+    renderRegisterCard(ctx, cap),
   );
 }
 
@@ -162,7 +168,12 @@ function importCard(ctx: Ctx): HTMLElement {
 
 async function renderResource(ctx: Ctx, resourceId: string): Promise<HTMLElement> {
   const { t, state } = ctx;
-  const { items } = await ctx.ws<{ items: SnapshotMeta[] }>({ type: "ha_sentinel/snapshots/list", resource_id: resourceId });
+  const [{ items }, resources] = await Promise.all([
+    ctx.ws<{ items: SnapshotMeta[] }>({ type: "ha_sentinel/snapshots/list", resource_id: resourceId }),
+    ctx.ws<{ items: Resource[] }>({ type: "ha_sentinel/resources/list" }),
+  ]);
+  const resource = resources.items.find((r) => r.id === resourceId);
+  const managed = resource?.write_policy === "managed_write";
   const back = h("button", { class: "link", onclick: () => { state.resourceId = null; ctx.rerender(); } }, `← ${t("history.back")}`);
   const rows = items.map((s, i) => {
     const prev = items[i + 1];
@@ -175,6 +186,9 @@ async function renderResource(ctx: Ctx, resourceId: string): Promise<HTMLElement
       s.validation.runnables !== undefined
         ? h("button", { class: "secondary small", onclick: () => { state.analyzeId = s.id; ctx.goto("autopilot"); } }, t("history.analyze"))
         : null,
+      managed && s.restorable && i > 0
+        ? h("button", { class: "secondary small", onclick: () => void openRestorePreview(ctx, resourceId, s.id) }, t("restore.preview"))
+        : null,
     );
     return h(
       "li",
@@ -185,7 +199,7 @@ async function renderResource(ctx: Ctx, resourceId: string): Promise<HTMLElement
         h("div", { class: "row spread" }, h("span", { class: "title" }, ctx.date(s.created_at, true)), i === 0 ? h("span", { class: "badge ok" }, t("history.latest")) : null),
         h("div", { class: "sub" }, `${t("history.canonical")} ${shortHash(s.canonical_hash)} · ${t("history.raw")} ${s.raw_available ? shortHash(s.raw_hash) : t("history.raw_not_kept")}`),
         s.redacted_paths.length ? h("div", { class: "sub" }, h("span", { class: "badge sev-warning" }, t("history.redacted")), ` ${s.redacted_paths.length}`) : null,
-        h("div", { class: "sub" }, t("history.not_restorable")),
+        h("div", { class: "sub" }, managed ? (s.restorable ? t("history.restorable") : t("history.not_restorable_invalid")) : t("history.not_restorable")),
         actions,
       ),
     );
@@ -194,6 +208,12 @@ async function renderResource(ctx: Ctx, resourceId: string): Promise<HTMLElement
     "div",
     { class: "stack" },
     back,
+    managed
+      ? h("section", { class: "card" },
+          h("div", { class: "row spread" }, h("h2", {}, resource?.label ?? ""), h("span", { class: "badge ok" }, t("policy.managed_write"))),
+          h("p", { class: "muted" }, t("managed.sync_hint")),
+          h("button", { class: "secondary", onclick: () => void syncManaged(ctx, resourceId) }, t("managed.sync")))
+      : null,
     h("section", { class: "card", "aria-labelledby": "h-snap" }, h("h2", { id: "h-snap" }, t("history.snapshots")), h("ul", { class: "list" }, rows)),
   );
 }

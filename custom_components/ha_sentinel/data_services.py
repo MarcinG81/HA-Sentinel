@@ -207,7 +207,7 @@ class DataServices:
                 break
         refs = await self.rt.db.run(jobs.referenced_blobs)
         totals["blobs"] = await self.hass.async_add_executor_job(self._purge_files, refs)
-        await self.rt.db.run(lambda c: c.execute("PRAGMA wal_checkpoint(PASSIVE)"))
+        await self.rt.db.run(lambda c: c.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall())
         self.last_purge = {"at_us": self.rt.clock.now_us(), **totals}
         return totals
 

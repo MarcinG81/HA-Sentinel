@@ -45,6 +45,7 @@ main { padding: 16px; max-width: 1100px; margin: 0 auto; }
   background: var(--card-background-color); border-left: 4px solid var(--warning-color, #ffa600);
 }
 .banner.error { border-left-color: var(--error-color, #db4437); }
+.banner.ok { border-left-color: var(--success-color, #43a047); }
 .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .card {
   background: var(--card-background-color, #fff);

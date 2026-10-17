@@ -168,3 +168,14 @@ def test_oversize_payload_rejected():
 def test_nan_rejected():
     with pytest.raises(ValueError):
         dumps_strict({"v": float("nan")})
+
+
+async def test_returning_a_live_cursor_is_rejected_and_does_not_poison_commits(tmp_path):
+    w = DatabaseWorker(tmp_path / "c.db")
+    await w.async_open(0)
+    with pytest.raises(TypeError):
+        await w.run(lambda c: c.execute("PRAGMA wal_checkpoint(PASSIVE)"))
+    # The connection still commits normally afterwards.
+    await w.run(lambda c: repo.save_checkpoint(c, "x", "b", 1))
+    assert await w.run(lambda c: repo.load_checkpoint(c, "x")) == ("b", 1)
+    await w.async_close()

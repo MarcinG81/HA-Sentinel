@@ -178,7 +178,16 @@ class DatabaseWorker:
 
     async def run(self, fn: Callable[[sqlite3.Connection], T]) -> T:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: fn(self.conn))
+        return await loop.run_in_executor(self._executor, self._call, fn)
+
+    def _call(self, fn: Callable[[sqlite3.Connection], T]) -> T:
+        result = fn(self.conn)
+        if isinstance(result, sqlite3.Cursor):
+            # A cursor that leaves the worker keeps its statement active, and every later
+            # COMMIT on this connection then fails with "SQL statements in progress".
+            result.close()
+            raise TypeError("database functions must not return live cursors")
+        return result
 
     async def async_open(self, now_us: int) -> DbMode:
         loop = asyncio.get_running_loop()

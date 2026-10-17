@@ -21,6 +21,8 @@ export interface E3State {
   exportRedacted: boolean;
   exportJob: string | null;
   deleteScope: string;
+  restore: import("./types.ts").RestorePreview | null;
+  managedDraft: { path: string; label: string; exclusive: boolean };
 }
 
 export function initialE3State(): E3State {
@@ -42,6 +44,8 @@ export function initialE3State(): E3State {
     exportRedacted: true,
     exportJob: null,
     deleteScope: "observations",
+    restore: null,
+    managedDraft: { path: "ha_sentinel_managed/automations.yaml", label: "Managed automations", exclusive: false },
   };
 }
 

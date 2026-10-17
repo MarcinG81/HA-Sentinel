@@ -24,6 +24,7 @@ from homeassistant.helpers.event import async_track_point_in_utc_time, async_tra
 
 from .adapters.evidence import EvidenceCollector
 from .adapters.ha_states import SOURCE_ID, availability_of, battery_payload, is_observed
+from .change_services import ChangeService
 from .config_services import ConfigServices
 from .const import (
     COVERAGE_WINDOW_S,
@@ -109,6 +110,7 @@ class SentinelRuntime:
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None
         self.data: DataServices | None = None
+        self.changes: ChangeService | None = None
         self.version = "unknown"
         self.module_states: dict[str, ModuleState] = {}
         self._correlate_lock = asyncio.Lock()
@@ -170,6 +172,18 @@ class SentinelRuntime:
         await self._start_config_services()
         self.data = DataServices(self)
         await self.data.async_start()
+        config_ready = self.module_states.get("config_history") is ModuleState.READY
+        if self.config is not None and config_ready:
+            self.changes = ChangeService(self)
+            status, reason = self.changes.capability
+            self.capabilities["managed_yaml.restore"] = Capability(
+                "managed_yaml.restore", status, reason)
+            try:
+                await self.changes.async_recover()
+            except Exception:
+                _LOGGER.exception("Recovery of interrupted applies failed")
+                self.capabilities["managed_yaml.restore"] = Capability(
+                    "managed_yaml.restore", CapabilityStatus.UNAVAILABLE, "recovery_failed")
         if self.state is ModuleState.STARTING:
             self.state = ModuleState.READY
 
