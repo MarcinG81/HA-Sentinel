@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "ha_sentinel"
 API_VERSION = 1
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 DATA_DIR = "ha_sentinel"
 DB_FILENAME = "sentinel.db"
 

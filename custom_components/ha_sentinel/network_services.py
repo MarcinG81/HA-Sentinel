@@ -291,6 +291,7 @@ class NetworkService:
 
     async def start_scan(self, request_key: str, request_hash: str, actor: str,
                          target_ids: list[str] | None) -> dict[str, Any]:
+        self.rt.require_degradation_below(2)
         if not self.active:
             raise SentinelError(ErrorCode.UNSUPPORTED_CAPABILITY, "active probes are disabled",
                                 reason="n0_only")

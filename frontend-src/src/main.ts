@@ -21,6 +21,7 @@ import type {
 } from "./types.ts";
 import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses } from "./rca.ts";
 import { renderDataCard, renderExportCard } from "./views_data.ts";
+import { renderMaintenanceCard } from "./views_maintenance.ts";
 import { renderNetwork } from "./views_network.ts";
 import { renderAutopilot, renderHistory, renderMap } from "./views_e3.ts";
 
@@ -384,7 +385,13 @@ class SentinelPanel extends HTMLElement {
       h("h2", { id: "h-list" }, t("incidents.active")),
       this.incidentList(page.items.slice(0, 5)),
     );
-    return h("div", { class: "stack" }, metrics, incidents, modules);
+    const degraded = ov.degradation_level > 0
+      ? h("div", { class: "banner error", role: "alert" }, t(`degraded.${Math.min(ov.degradation_level, 3)}`))
+      : null;
+    const maint = hl.maintenance_units > 0
+      ? h("div", { class: "banner", role: "status" }, t("mnt.units").replace("{n}", String(hl.maintenance_units)))
+      : null;
+    return h("div", { class: "stack" }, degraded, maint, metrics, incidents, modules);
   }
 
   private capabilityTable(caps: Capability[]): HTMLElement {
@@ -463,11 +470,16 @@ class SentinelPanel extends HTMLElement {
       ? h("button", { class: "secondary", onclick: () => void this.loadMore() }, t("incidents.more"))
       : null;
     return h(
-      "section",
-      { class: "card", "aria-labelledby": "h-doc" },
-      h("div", { class: "row spread" }, h("h2", { id: "h-doc" }, t("tab.doctor")), toggle),
-      this.incidentList(this.incidentPages),
-      more ? h("div", { class: "actions" }, more) : null,
+      "div",
+      { class: "stack" },
+      h(
+        "section",
+        { class: "card", "aria-labelledby": "h-doc" },
+        h("div", { class: "row spread" }, h("h2", { id: "h-doc" }, t("tab.doctor")), toggle),
+        this.incidentList(this.incidentPages),
+        more ? h("div", { class: "actions" }, more) : null,
+      ),
+      await renderMaintenanceCard(this.ctx),
     );
   }
 

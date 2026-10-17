@@ -50,3 +50,13 @@ def battery_payload(state: State | None) -> dict[str, Any] | None:
     if value != value or value in (float("inf"), float("-inf")):
         return None
     return {"value": value, "unit": "%", "device_class": "battery"}
+
+
+def update_payload(state: State | None) -> dict[str, Any] | None:
+    """update.* entities: only whether an update is offered and the version string."""
+    if state is None or not state.entity_id.startswith("update."):
+        return None
+    if state.state not in ("on", "off"):
+        return None
+    return {"available": state.state == "on",
+            "latest_version": str(state.attributes.get("latest_version") or "")[:40]}

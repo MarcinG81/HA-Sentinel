@@ -78,6 +78,9 @@ class Inventory:
     def uid_for_alias(self, entity_id: str) -> str | None:
         return self._by_alias.get(entity_id)
 
+    def devices(self) -> list[DeviceRecord]:
+        return list(self._devices.values())
+
     def all_entities(self) -> list[EntityRecord]:
         """Including tombstones; used for alias history (spec 22.1)."""
         return list(self._by_uid.values())

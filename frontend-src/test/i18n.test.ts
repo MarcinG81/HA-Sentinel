@@ -6,7 +6,7 @@ test("every English key has a Polish translation and vice versa", async () => {
   const src = await import("node:fs").then((fs) => fs.readFileSync(new URL("../src/i18n.ts", import.meta.url), "utf8"));
   const block = (name: string) => {
     const start = src.indexOf(`const ${name}`);
-    const end = src.indexOf("};", start);
+    const end = src.indexOf("\n};", start);
     return new Set([...src.slice(start, end).matchAll(/^\s+"?([\w.]+)"?:/gm)].map((m) => m[1]));
   };
   const en = block("en");

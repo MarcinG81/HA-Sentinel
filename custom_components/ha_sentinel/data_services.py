@@ -26,11 +26,12 @@ from .const import (
     DOMAIN,
     OPT_RETENTION_INCIDENTS_DAYS,
     OPT_RETENTION_OBSERVATIONS_DAYS,
+    OPT_STORAGE_MAX_TOTAL_MIB,
     SCHEMA_VERSION,
 )
 from .core.clock import us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
-from .core.models import JobState, new_uuid
+from .core.models import Finding, FindingStatus, JobState, Severity, new_uuid
 from .modules.export.builder import ExportTooLargeError, build_export
 from .repositories import history, jobs
 from .repositories import repository as repo
@@ -52,6 +53,9 @@ class DataServices:
         self.exports_dir = self.root / "exports"
         self._unsubs: list[CALLBACK_TYPE] = []
         self.last_purge: dict[str, Any] | None = None
+        self.storage_ratio = 0.0
+        self.storage_level = 0  # 0 ok, 1 soft (>= 80 %), 2 hard (>= 95 %)
+        self.findings: dict[str, Finding] = {}
 
     async def async_start(self) -> None:
         if self.rt.storage_writable:
@@ -65,12 +69,56 @@ class DataServices:
             unsub()
         self._unsubs.clear()
 
+    # --- Storage pressure (spec 7.3, DOC010) ---------------------------------------------------
+
+    def _usage_bytes(self) -> int:
+        total = 0
+        for path in self.root.rglob("*"):
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except OSError:
+                continue
+        return total
+
+    async def check_pressure(self) -> int:
+        """Soft 80 % / hard 95 % of the storage budget; resolves below 75 %."""
+        opts = {**DEFAULT_OPTIONS, **self.rt.entry.options}
+        budget = int(opts[OPT_STORAGE_MAX_TOTAL_MIB]) * 1024 * 1024
+        used = await self.hass.async_add_executor_job(self._usage_bytes)
+        self.storage_ratio = used / budget if budget else 0.0
+        level = 2 if self.storage_ratio >= 0.95 else 1 if self.storage_ratio >= 0.80 else 0
+        if level == 0 and self.storage_level and self.storage_ratio >= 0.75:
+            level = 1  # hysteresis
+        self.storage_level = level
+        now = self.rt.clock.now_us()
+        uid = "sentinel:storage"
+        current = self.findings.get(uid)
+        severity = Severity.HIGH if level == 2 else Severity.WARNING
+        if level and (current is None or current.severity is not severity):
+            f = Finding(id=current.id if current else new_uuid(), rule_id="DOC010",
+                        rule_version=1, subject_uid=uid, status=FindingStatus.ACTIVE,
+                        severity=severity,
+                        first_seen_us=current.first_seen_us if current else now,
+                        last_seen_us=now, details={"ratio": round(self.storage_ratio, 3)})
+            self.findings[uid] = f
+            if self.rt.storage_writable:
+                await self.rt.db.run(lambda c: repo.upsert_finding(c, f, now))
+        elif not level and current is not None:
+            current.status = FindingStatus.RESOLVED
+            current.resolved_at_us = current.last_seen_us = now
+            del self.findings[uid]
+            if self.rt.storage_writable:
+                await self.rt.db.run(lambda c: repo.upsert_finding(c, current, now))
+        return level
+
     # --- Export -----------------------------------------------------------------------------
 
     async def start_export(self, *, scopes: list[str], redacted: bool, request_key: str,
                            request_hash: str, actor_id: str) -> dict[str, Any]:
         if not self.rt.storage_writable:
             raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+        self.rt.require_degradation_below(2)
         now = self.rt.clock.now_us()
         job_id, created = await self.rt.db.run(lambda c: jobs.create_job(
             c, kind="export", request_key=request_key, request_hash=request_hash,

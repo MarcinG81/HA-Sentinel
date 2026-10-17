@@ -11,6 +11,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
+from ..const import DOMAIN
 from ..core.inventory import Inventory
 from ..modules.dependency_mapper.graph import DeviceInfo, EntityInfo, EntryInfo
 from .ha_states import is_observed
@@ -50,7 +51,7 @@ def async_snapshot(hass: HomeAssistant, inventory: Inventory) -> RegistrySnapsho
     entities: list[EntityInfo] = []
     seen: set[str] = set()
     for entry in ent_reg.entities.values():
-        if not is_observed(entry.entity_id):
+        if not is_observed(entry.entity_id) or entry.platform == DOMAIN:
             continue
         uid = inventory.uid_for_alias(entry.entity_id) or f"entity:{entry.id}"
         state = hass.states.get(entry.entity_id)
@@ -63,8 +64,9 @@ def async_snapshot(hass: HomeAssistant, inventory: Inventory) -> RegistrySnapsho
         seen.add(entry.entity_id)
     for state in hass.states.async_all():
         # Entities without a registry entry still exist and can be referenced.
-        if state.entity_id in seen or not is_observed(state.entity_id):
-            continue
+        if (state.entity_id in seen or not is_observed(state.entity_id)
+                or ent_reg.async_get(state.entity_id) is not None):
+            continue  # registered entities were handled (or deliberately skipped) above
         uid = inventory.uid_for_alias(state.entity_id) or f"entity:{state.entity_id}"
         entities.append(EntityInfo(uid, state.entity_id, state.name, None, None, None))
         seen.add(state.entity_id)

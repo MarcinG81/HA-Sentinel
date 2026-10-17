@@ -37,6 +37,7 @@ class HealthResult:
     coverage_pct: Decimal | None
     units_total: int
     components: list[dict] = field(default_factory=list)
+    maintenance_units: int = 0
 
     @property
     def complete(self) -> bool:

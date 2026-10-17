@@ -65,7 +65,9 @@ RULE_SEVERITY = {
     "DOC003": Severity.WARNING,
     "DOC004": Severity.WARNING,
     "DOC005": Severity.WARNING,
+    "DOC009": Severity.INFO,  # information, never an automatic upgrade
 }
+MAINTENANCE_RECHECK_S = 60
 RULE_VERSION = 1
 
 
@@ -89,10 +91,13 @@ class DoctorEngine:
         boot_started_us: int,
         params: DoctorParams | None = None,
         coverage_complete: CoverageFn | None = None,
+        in_maintenance: Callable[[str], bool] | None = None,
     ) -> None:
         self.params = params or DoctorParams()
         self._grace_end_us = boot_started_us + self.params.startup_grace_s * S
         self._coverage_complete = coverage_complete or (lambda _f, _t: True)
+        # Planned maintenance suppresses new failures of its subjects (spec 8.2).
+        self._in_maintenance = in_maintenance or (lambda _uid: False)
         self._entities: dict[str, _EntityState] = {}
         self._findings: dict[str, Finding] = {}  # fingerprint -> pending/active
         self._heap: list[tuple[int, int, str, str, int]] = []
@@ -125,6 +130,8 @@ class DoctorEngine:
             return []
         if obs.kind is ObservationKind.NUMERIC_SAMPLE:
             return self._on_numeric(obs)
+        if obs.kind is ObservationKind.UPDATE_STATE:
+            return self._on_update(obs)
         if obs.kind in (ObservationKind.AVAILABILITY_CHANGED, ObservationKind.STATE_SNAPSHOT):
             out = self._on_availability(obs)
             if obs.subject_uid in self.params.heartbeats:
@@ -143,6 +150,10 @@ class DoctorEngine:
                 out += self._raise("DOC005", uid, deadline, None, CoverageStatus.COMPLETE)
                 continue
             if st is None or (action != "flap_reeval" and st.token != token):
+                continue
+            if action in ("mature_unavailable", "mature_unknown") and self._in_maintenance(uid):
+                # Re-check after the window instead of raising during maintenance.
+                self._push(deadline + MAINTENANCE_RECHECK_S * S, uid, action, token)
                 continue
             if action == "mature_unavailable":
                 cov = self._episode_coverage(st)
@@ -267,6 +278,17 @@ class DoctorEngine:
             return []
         st.battery_low_since_us = None
         return []
+
+    # --- Updates: DOC009 ----------------------------------------------------------------
+
+    def _on_update(self, obs: Observation) -> list[Finding]:
+        uid = obs.subject_uid
+        assert uid is not None
+        if obs.payload.get("available") is True:
+            return self._raise("DOC009", uid, obs.occurred_at_us or obs.received_at_us, obs.id,
+                               CoverageStatus.COMPLETE,
+                               details={"latest_version": obs.payload.get("latest_version")})
+        return self._resolve("DOC009", uid, obs.received_at_us)
 
     # --- Heartbeat: DOC005 -------------------------------------------------------
 

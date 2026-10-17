@@ -126,3 +126,11 @@ HA 2026.10.2 uruchomiony lokalnie: config flow, blokada drugiej instancji, panel
 - Repairs wyłącznie dla domeny Sentinel; zgłoszenia znikają, gdy problem ustąpi.
 - Diagnostyka HA (`diagnostics.py`) z allowlisty pól: bez encji, nazw, adresów i ścieżek.
 - `docs/RUNBOOK.md`: instalacja, opcje, plik zarządzany, upgrade, downgrade krok po kroku, uszkodzona baza, HA nie startuje / frontend nie działa, presja obciążenia i miejsca, usuwanie danych i deinstalacja. `docs/COMPATIBILITY.md`: macierz zgodności i dowody kwalifikacji.
+
+## Po E4 — luki R1 domknięte
+
+- Powiadomienia (14.3): opt-in, tylko lokalne powiadomienia trwałe HA, outbox w transakcji incydentu (migracja v5), stały identyfikator na incydent, ponowienia 5/30/120 s i co 10 min do 24 h, cooldown 30 min dla nawrotów (eskalacja do critical przełamuje), odwołanie po rozwiązaniu.
+- Okna serwisowe (8.2, migracja v6): encja / urządzenie / integracja, auto-wygaszanie; Doctor odkłada dojrzewanie awarii do końca okna, health score wyłącza jednostki i liczy je osobno.
+- DOC009 (aktualizacja dostępna, kara 0, nigdy auto-upgrade) i DOC010 (presja magazynu: 80% / 95% budżetu, histereza do 75%, próbkowanie co 5 min).
+- Degradacja (21.2): poziom 1 (kolejka > 80% przez 60 s) wstrzymuje replay; poziom 2 (kolejka > 95% lub magazyn ≥ 95%) blokuje skany, eksporty i importy; poziom 3 przy braku trwałości; powrót po 5 min spokoju poniżej 50%.
+- Znaleziony błąd: Sentinel obserwował własne encje (np. `health_score` = unknown w rozgrzewce → DOC002). Encje platformy `ha_sentinel` są wykluczone z obserwacji i grafu.

@@ -31,6 +31,7 @@ export interface Capability {
 export interface Overview {
   api_version: number;
   revision: number;
+  degradation_level: number;
   state: string;
   reason_code: string | null;
   health: {
@@ -39,6 +40,7 @@ export interface Overview {
     coverage_pct: number | null;
     coverage_complete_at: string | null;
     units: number;
+    maintenance_units: number;
   };
   counters: {
     active_incidents: number;

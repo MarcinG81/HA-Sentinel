@@ -23,7 +23,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_point_in_utc_time, async_track_time_interval
 
 from .adapters.evidence import EvidenceCollector
-from .adapters.ha_states import SOURCE_ID, availability_of, battery_payload, is_observed
+from .adapters.ha_states import (
+    SOURCE_ID,
+    availability_of,
+    battery_payload,
+    is_observed,
+    update_payload,
+)
 from .change_services import ChangeService
 from .config_services import ConfigServices
 from .const import (
@@ -41,6 +47,7 @@ from .const import (
 )
 from .core.clock import Clock, SystemClock, us_to_rfc3339
 from .core.coverage import CoverageTracker
+from .core.errors import ErrorCode, SentinelError
 from .core.ingestion import IngestionQueues
 from .core.inventory import Inventory, InventoryChange
 from .core.models import (
@@ -56,6 +63,7 @@ from .core.models import (
 )
 from .core.ratelimit import RateLimiter
 from .data_services import DataServices
+from .maintenance_services import MaintenanceService
 from .modules.correlation.correlator import ActiveFinding, ExistingIncident, correlate
 from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
@@ -68,6 +76,7 @@ from .repositories.db import DatabaseWorker, DbMode, UnsupportedSchemaError
 
 _LOGGER = logging.getLogger(__name__)
 SIGNAL_UPDATED = f"{DOMAIN}_updated"
+PRESSURE_EVERY_S = 300
 S = 1_000_000
 
 
@@ -105,10 +114,12 @@ class SentinelRuntime:
         self.queues = IngestionQueues(self.clock, source_id=SOURCE_ID)
         self.inventory = Inventory(self.boot_id)
         self.coverage = CoverageTracker(monitoring_since_us=self.started_us)
+        self.maintenance = MaintenanceService(self)
         self.doctor = DoctorEngine(
             boot_started_us=self.started_us,
             params=self.doctor_params,
             coverage_complete=self.coverage.is_complete,
+            in_maintenance=lambda uid: self.maintenance.covers(uid),
         )
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None
@@ -119,6 +130,10 @@ class SentinelRuntime:
         self.version = "unknown"
         self.module_states: dict[str, ModuleState] = {}
         self._correlate_lock = asyncio.Lock()
+        self._queue_high_since_us: int | None = None
+        self._calm_since_us: int | None = None
+        self.degradation_level = 0
+        self._pressure_checked_us = 0
         self._evidence = EvidenceCollector()
         self.rate_limiter = RateLimiter(self.clock)
         self.subscriptions: dict[str, int] = {}  # user_id -> open subscriptions
@@ -149,6 +164,7 @@ class SentinelRuntime:
 
         entities, devices = await self.db.run(repo.load_inventory)
         self.inventory.load(entities, devices)
+        await self.maintenance.async_load()
         self.doctor.restore(await self.db.run(repo.load_active_findings))
         last_us = await self.db.run(repo.last_observation_us)
         self.active_incidents = await self.db.run(repo.count_active_incidents)
@@ -201,6 +217,7 @@ class SentinelRuntime:
                 _LOGGER.exception("Recovery of interrupted applies failed")
                 self.capabilities["managed_yaml.restore"] = Capability(
                     "managed_yaml.restore", CapabilityStatus.UNAVAILABLE, "recovery_failed")
+        self._update_degradation(0)
         if self.state is ModuleState.STARTING:
             self.state = ModuleState.READY
 
@@ -297,9 +314,16 @@ class SentinelRuntime:
             self._pending_inventory.extend(changes)
         return uid
 
+    def _observed(self, entity_id: str) -> bool:
+        """Privacy-excluded domains and Sentinel's own entities are never observed."""
+        if not is_observed(entity_id):
+            return False
+        reg = er.async_get(self.hass).async_get(entity_id)
+        return reg is None or reg.platform != DOMAIN
+
     def _snapshot_states(self) -> None:
         for state in self.hass.states.async_all():
-            if not is_observed(state.entity_id):
+            if not self._observed(state.entity_id):
                 continue
             uid = self._resolve_uid(state.entity_id)
             avail = availability_of(state)
@@ -309,16 +333,25 @@ class SentinelRuntime:
             if (bat := battery_payload(state)) is not None:
                 self._offer(self._make_obs(ObservationKind.NUMERIC_SAMPLE, uid, bat,
                                            _dt_us(state.last_updated)))
+            if (upd := update_payload(state)) is not None:
+                self._offer(self._make_obs(ObservationKind.UPDATE_STATE, uid, upd,
+                                           _dt_us(state.last_changed)))
 
     @callback
     def _on_state(self, event: Event[EventStateChangedData]) -> None:
         entity_id = event.data["entity_id"]
         new_state = event.data["new_state"]
-        if new_state is None or not is_observed(entity_id):
+        if new_state is None or not self._observed(entity_id):
             return
         avail = availability_of(new_state)
         prev = self._availability.get(entity_id)
         bat = battery_payload(new_state)
+        upd = update_payload(new_state)
+        old_upd = update_payload(event.data["old_state"])
+        if upd is not None and upd != old_upd:
+            self._offer(self._make_obs(ObservationKind.UPDATE_STATE,
+                                       self._resolve_uid(entity_id), upd,
+                                       _dt_us(new_state.last_changed)))
         if avail == prev and bat is None:
             return
         uid = self._resolve_uid(entity_id)
@@ -363,6 +396,11 @@ class SentinelRuntime:
                 self.reason_code = "writer_failed"
             if self._stopping:
                 return
+
+    async def async_flush(self) -> None:
+        """Drain the queues now (unload paths and deterministic tests)."""
+        while await self._flush_once():
+            pass
 
     async def _flush_once(self) -> bool:
         drained = self.queues.drain()
@@ -411,6 +449,7 @@ class SentinelRuntime:
         async with self._correlate_lock:
             now = self.clock.now_us()
             network_findings = self.network.active_findings() if self.network else []
+            network_findings += list(self.data.findings.values()) if self.data else []
             findings = [
                 ActiveFinding(f.id, f.rule_id, f.subject_uid, f.severity, f.first_seen_us)
                 for f in [*self.doctor.active_findings(), *network_findings]
@@ -479,7 +518,42 @@ class SentinelRuntime:
     def _publish_tick(self, _now: datetime) -> None:
         self.entry.async_create_task(self.hass, self._periodic(), f"{DOMAIN}_periodic")
 
+    def _update_degradation(self, storage_level: int) -> None:
+        """Levels from spec 21.2 with hysteresis: return only after 5 min below 50 %."""
+        now = self.clock.now_us()
+        ratio = self.queues.depth / self.queues.capacity if self.queues.capacity else 0.0
+        if ratio > 0.8:
+            self._queue_high_since_us = self._queue_high_since_us or now
+        else:
+            self._queue_high_since_us = None
+        queue_level = 2 if ratio > 0.95 else 1 if (
+            self._queue_high_since_us and now - self._queue_high_since_us >= 60 * S) else 0
+        target = max(queue_level, storage_level, 0 if self.storage_writable else 3)
+        if target >= self.degradation_level:
+            self.degradation_level = target
+            self._calm_since_us = None
+            return
+        if ratio < 0.5 and storage_level < self.degradation_level:
+            self._calm_since_us = self._calm_since_us or now
+            if now - self._calm_since_us >= 5 * 60 * S:
+                self.degradation_level = target
+                self._calm_since_us = None
+        else:
+            self._calm_since_us = None
+
+    def require_degradation_below(self, level: int) -> None:
+        if self.degradation_level >= level:
+            raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE,
+                                "Sentinel is degraded; heavy work is paused",
+                                reason=f"degraded_level_{self.degradation_level}")
+
     async def _periodic(self) -> None:
+        self.maintenance.refresh_parents()
+        now = self.clock.now_us()
+        if self.data is not None and now - self._pressure_checked_us >= PRESSURE_EVERY_S * S:
+            self._pressure_checked_us = now  # walking blobs/ is not free: every 5 min
+            await self.data.check_pressure()
+        self._update_degradation(self.data.storage_level if self.data is not None else 0)
         if self.storage_writable:
             now = self.clock.now_us()
             if await self.db.run(lambda c: repo.expire_suppressions(c, now)):
@@ -554,7 +628,15 @@ class SentinelRuntime:
                 continue  # no valid baseline for this entity in the current boot
             groups.setdefault(ent.device_uid or ent.uid, set()).add(ent.uid)
         units = [HealthUnit(k, frozenset(v), covered=covered) for k, v in groups.items()]
-        return compute_health(units, self.doctor.active_findings())
+        # Planned maintenance leaves the denominator; muted failures do not (spec 8.2).
+        excluded = {u.uid: "maintenance" for u in units
+                    if u.entity_uids and all(self.maintenance.covers(e, now)
+                                             for e in u.entity_uids)}
+        excluded.update({e: "maintenance" for u in units for e in u.entity_uids
+                         if self.maintenance.covers(e, now)})
+        result = compute_health(units, self.doctor.active_findings(), excluded)
+        result.maintenance_units = sum(1 for u in units if u.uid in excluded)
+        return result
 
     @property
     def degraded(self) -> bool:
@@ -567,6 +649,7 @@ class SentinelRuntime:
             "revision": self.revision,
             "state": str(self.state),
             "reason_code": self.reason_code,
+            "degradation_level": self.degradation_level,
             "health": {
                 "score": h.score,
                 "score_partial": float(h.score_exact) if h.score_exact is not None else None,
@@ -577,6 +660,7 @@ class SentinelRuntime:
                         COVERAGE_WINDOW_S * S, self.clock.now_us())) else None
                 ),
                 "units": h.units_total,
+                "maintenance_units": h.maintenance_units,
             },
             "counters": {
                 "active_incidents": self.active_incidents,

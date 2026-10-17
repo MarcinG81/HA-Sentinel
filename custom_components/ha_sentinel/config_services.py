@@ -131,6 +131,7 @@ class ConfigServices:
 
     async def prepare(self, content: str, content_hash: str, kind: str,
                       redact_secrets: bool) -> PreparedImport:
+        self.rt.require_degradation_below(2)
         return await self.hass.async_add_executor_job(
             prepare_import, content, content_hash, kind, redact_secrets
         )
@@ -199,6 +200,7 @@ class ConfigServices:
         from .adapters import history as ha_history
         from .modules.autopilot.replay import replay as run_replay
 
+        self.rt.require_degradation_below(1)  # level 1 pauses costly replay (spec 21.2)
         snap = await self.get_snapshot(snapshot_id)
         if snap["kind"] != "automation":
             raise SentinelError(ErrorCode.INVALID_REQUEST, "only automations can be replayed")

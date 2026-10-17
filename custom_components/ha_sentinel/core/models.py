@@ -38,6 +38,7 @@ class ObservationKind(StrEnum):
     NUMERIC_SAMPLE = "numeric.sample"
     REGISTRY_CHANGED = "registry.changed"
     COVERAGE_GAP = "coverage.gap"
+    UPDATE_STATE = "update.state"
 
     @property
     def is_control(self) -> bool:

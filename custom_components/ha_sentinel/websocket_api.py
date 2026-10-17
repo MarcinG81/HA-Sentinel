@@ -89,6 +89,9 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_network_targets_delete,
         ws_network_scan,
         ws_autopilot_replay,
+        ws_maintenance_list,
+        ws_maintenance_create,
+        ws_maintenance_cancel,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -935,3 +938,51 @@ async def ws_autopilot_replay(hass, connection, msg, runtime) -> None:
     Never calls automation.trigger or any other service (AC AUT 03, T10)."""
     connection.send_result(msg["id"], await _config(runtime).replay(msg["snapshot_id"],
                                                                     msg["hours"]))
+
+
+# --- Maintenance windows (spec 8.2) ----------------------------------------------------
+
+
+@websocket_api.websocket_command(_schema("maintenance/list"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_maintenance_list(hass, connection, msg, runtime) -> None:
+    await runtime.maintenance.async_load()
+    connection.send_result(msg["id"], {
+        "items": [runtime.maintenance.window_api(w) for w in runtime.maintenance.windows]})
+
+
+@websocket_api.websocket_command(
+    _schema("maintenance/create")
+    | {
+        vol.Required("scope_uid"): vol.All(str, vol.Length(min=1, max=300)),
+        vol.Optional("label", default=""): vol.All(str, vol.Length(max=120)),
+        vol.Required("minutes"): vol.All(int, vol.Range(min=1, max=7 * 24 * 60)),
+        vol.Required("reason"): vol.All(str, vol.Length(min=1, max=200)),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_maintenance_create(hass, connection, msg, runtime) -> None:
+    """Planned maintenance: no new failures for the scope, excluded from the score."""
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    result = await runtime.maintenance.create(
+        scope_uid=msg["scope_uid"], label=msg["label"], minutes=msg["minutes"],
+        reason=msg["reason"], actor=connection.user.id)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("maintenance/cancel") | {vol.Required("window_id"): _uuid,
+                                     vol.Required("request_key"): _uuid}
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_maintenance_cancel(hass, connection, msg, runtime) -> None:
+    await runtime.maintenance.cancel(msg["window_id"], connection.user.id)
+    connection.send_result(msg["id"], {"cancelled": True})
