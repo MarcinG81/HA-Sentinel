@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "ha_sentinel"
 API_VERSION = 1
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DATA_DIR = "ha_sentinel"
 DB_FILENAME = "sentinel.db"
 
@@ -55,6 +55,7 @@ OPT_MANAGED_RELOAD = "managed_reload_after_apply"
 OPT_NETWORK_ACTIVE_PROBES = "network_active_probes"
 OPT_NETWORK_INTERVAL_S = "network_interval_s"
 OPT_NETWORK_ALLOWLIST = "network_allowlist"
+OPT_NOTIFICATIONS_ENABLED = "notifications_enabled"
 
 DEFAULT_OPTIONS: dict[str, object] = {
     OPT_MODULES_DOCTOR: True,
@@ -75,6 +76,8 @@ DEFAULT_OPTIONS: dict[str, object] = {
     OPT_NETWORK_ACTIVE_PROBES: False,
     OPT_NETWORK_INTERVAL_S: 60,
     OPT_NETWORK_ALLOWLIST: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7",
+    # Notifications stay in the panel unless the admin opts in (spec 14.3).
+    OPT_NOTIFICATIONS_ENABLED: False,
 }
 
 # Domains excluded from observation by default (spec 5.1, 17.1)

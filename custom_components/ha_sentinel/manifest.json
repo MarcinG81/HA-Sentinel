@@ -7,6 +7,7 @@
     "frontend",
     "http",
     "panel_custom",
+    "persistent_notification",
     "websocket_api"
   ],
   "documentation": "https://github.com/OWNER/ha-sentinel",

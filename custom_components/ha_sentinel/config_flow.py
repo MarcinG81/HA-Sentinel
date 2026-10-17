@@ -24,6 +24,7 @@ from .const import (
     OPT_NETWORK_ACTIVE_PROBES,
     OPT_NETWORK_ALLOWLIST,
     OPT_NETWORK_INTERVAL_S,
+    OPT_NOTIFICATIONS_ENABLED,
     OPT_RETENTION_OBSERVATIONS_DAYS,
     OPT_STORAGE_MAX_TOTAL_MIB,
 )
@@ -78,6 +79,8 @@ class SentinelOptionsFlow(OptionsFlow):
                     vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
                 vol.Required(OPT_STORAGE_MAX_TOTAL_MIB, default=opts[OPT_STORAGE_MAX_TOTAL_MIB]):
                     vol.All(vol.Coerce(int), vol.Range(min=256, max=16384)),
+                vol.Required(OPT_NOTIFICATIONS_ENABLED,
+                             default=opts[OPT_NOTIFICATIONS_ENABLED]): bool,
                 vol.Required(OPT_MANAGED_WRITE_ENABLED,
                              default=opts[OPT_MANAGED_WRITE_ENABLED]): bool,
                 vol.Required(OPT_MANAGED_DIR, default=opts[OPT_MANAGED_DIR]):

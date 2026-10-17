@@ -61,6 +61,7 @@ from .modules.dependency_mapper.graph import DependencyGraph
 from .modules.doctor.engine import DoctorEngine, DoctorParams
 from .modules.doctor.health import HealthResult, HealthUnit, compute_health
 from .network_services import NetworkService
+from .notification_services import NotificationService
 from .repairs import async_update_storage_issue
 from .repositories import repository as repo
 from .repositories.db import DatabaseWorker, DbMode, UnsupportedSchemaError
@@ -114,6 +115,7 @@ class SentinelRuntime:
         self.data: DataServices | None = None
         self.changes: ChangeService | None = None
         self.network: NetworkService | None = None
+        self.notifications = NotificationService(self)
         self.version = "unknown"
         self.module_states: dict[str, ModuleState] = {}
         self._correlate_lock = asyncio.Lock()
@@ -441,6 +443,7 @@ class SentinelRuntime:
 
             changed, self.active_incidents = await self.db.run(apply)
         if changed:
+            await self.notifications.process()
             self.bump()
 
     # --- Doctor timers -------------------------------------------------------------
@@ -483,6 +486,7 @@ class SentinelRuntime:
                 self.revision += 1
             # Re-rank periodically: evidence and dependent states change without findings.
             await self.async_correlate()
+            await self.notifications.process()  # retries and dismissals
         async_dispatcher_send(self.hass, SIGNAL_UPDATED)
 
     def bump(self) -> None:

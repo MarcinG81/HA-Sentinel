@@ -13,6 +13,7 @@ from ..core.models import (
     FindingStatus,
     IncidentStatus,
     Observation,
+    Severity,
     dumps_strict,
     new_uuid,
 )
@@ -243,11 +244,7 @@ def sync_incidents(conn: sqlite3.Connection, plans: list, now_us: int) -> bool:
                     (incident_id, plan.fingerprint, str(IncidentStatus.OPEN),
                      str(plan.severity), plan.opened_at_us, now_us, 1, dumps_strict(summary)),
                 )
-                conn.execute(
-                    "INSERT INTO notification_outbox(id, incident_id, revision, state, "
-                    "next_try_us) VALUES (?,?,?,?,?)",
-                    (new_uuid(), incident_id, 1, "pending", now_us),
-                )
+                _enqueue(conn, incident_id, 1, "opened", now_us)
                 changed = True
             else:
                 incident_id = row["id"]
@@ -262,6 +259,11 @@ def sync_incidents(conn: sqlite3.Connection, plans: list, now_us: int) -> bool:
                         (dumps_strict(summary), str(plan.severity), now_us, incident_id),
                     )
                     changed = True
+                    if plan.severity is Severity.CRITICAL and row["severity"] != "critical":
+                        # A new critical severity breaks the notification cooldown.
+                        rev = conn.execute("SELECT revision FROM incidents WHERE id=?",
+                                           (incident_id,)).fetchone()[0]
+                        _enqueue(conn, incident_id, rev, "escalated", now_us)
             for merged_id in plan.merge_incident_ids:
                 merged[merged_id] = incident_id
         for fp, row in active.items():
@@ -277,6 +279,16 @@ def sync_incidents(conn: sqlite3.Connection, plans: list, now_us: int) -> bool:
             )
             changed = True
     return changed
+
+
+def _enqueue(conn: sqlite3.Connection, incident_id: str, revision: int, reason: str,
+             now_us: int) -> None:
+    """Outbox entry in the same transaction as the incident change (spec 8.2, 14.3)."""
+    conn.execute(
+        "INSERT OR IGNORE INTO notification_outbox(id, incident_id, revision, reason, state, "
+        "next_try_us, created_us) VALUES (?,?,?,?,?,?,?)",
+        (new_uuid(), incident_id, revision, reason, "pending", now_us, now_us),
+    )
 
 
 def confirm_cause(conn: sqlite3.Connection, incident_id: str, expected_revision: int,

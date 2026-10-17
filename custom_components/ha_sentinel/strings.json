@@ -23,7 +23,8 @@
           "managed_reload_after_apply": "Reload automations after restore",
           "network_active_probes": "Active network probes (level N1, approved targets only)",
           "network_interval_s": "Probe interval (s)",
-          "network_allowlist": "Allowed address ranges (CIDR, comma separated)"
+          "network_allowlist": "Allowed address ranges (CIDR, comma separated)",
+          "notifications_enabled": "Show new incidents as Home Assistant notifications"
         }
       }
     },

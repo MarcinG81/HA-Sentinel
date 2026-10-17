@@ -23,7 +23,8 @@
           "managed_reload_after_apply": "Przeładuj automatyzacje po przywróceniu",
           "network_active_probes": "Aktywne sondy sieciowe (poziom N1, tylko zatwierdzone cele)",
           "network_interval_s": "Interwał sond (s)",
-          "network_allowlist": "Dozwolone zakresy adresów (CIDR, po przecinku)"
+          "network_allowlist": "Dozwolone zakresy adresów (CIDR, po przecinku)",
+          "notifications_enabled": "Pokazuj nowe incydenty jako powiadomienia Home Assistant"
         }
       }
     },
