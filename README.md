@@ -12,34 +12,42 @@ No cloud, no account, no telemetry, no AI. Everything runs inside your Home Assi
 ## Features
 
 **Doctor** — availability (DOC001), unknown state (DOC002), flapping (DOC003), low battery
-(DOC004), missing heartbeat (DOC005), update available (DOC009), Sentinel storage pressure
-(DOC010). Missing data is shown as missing, never as "healthy". Health score with coverage,
-planned maintenance windows, acknowledge and suppress.
+(DOC004, also for manually mapped levels), missing heartbeat (DOC005, only for declared
+contracts), missing or stale references in imported YAML (DOC006), missed expected runs of
+an automation on your weekday/time calendar (DOC007), weak signal against a scale you set
+(DOC008), update available (DOC009), Sentinel storage pressure (DOC010). Missing data is shown
+as missing, never as "healthy". Health score with visible components and unit weights,
+per-object rule overrides, planned maintenance windows, acknowledge and suppress.
 
 **Probable cause** — findings of one episode are grouped into one incident when they share
 an explicit dependency (device, integration, network endpoint). Hypotheses are ranked with
 time agreement, share of affected dependents, path confidence, direct evidence and
-counter-evidence. A ranking is not a probability; you can confirm or reject it.
+counter-evidence. A ranking is not a probability; you can confirm or reject it. A config
+change on the dependency path in the 30 minutes before is listed separately, and a problem
+that comes back points to its previous incident.
 
 **Configuration history** — import automations, scripts or blueprints (safe YAML parser,
 plain secrets refused or redacted), semantic and text diff, YAML download. Optional
 *managed files*: restore a previous version with preview, plan approval, journaled atomic
 write, automation reload, verification and automatic rollback.
 
-**Autopilot** — static lint AUT001–AUT010 with source positions, loop detection, conflict
-and hysteresis checks, analysis coverage, and a replay of recorded history that never calls
-any action.
+**Autopilot** (off by default) — static lint AUT001–AUT010 with source positions, loop
+detection, conflict and hysteresis checks, analysis coverage, a small draft wizard that goes
+through the same parser and lint, and a replay of recorded history that never calls any action.
 
-**Dependency map** — registries and imported YAML, with provenance and confidence on every
-edge; "what depends on this" and "what does this depend on".
+**Dependency map** — registries, imported YAML and network hosts, with provenance and
+confidence on every edge; "what depends on this" and "what does this depend on"; versioned,
+so older revisions keep the names and references they had.
 
-**Network** — level N0 (default) only uses what HA knows. Optional N1 probes approved
+**Network** — level N0 (default) only uses what HA knows, plus hosts you describe and link to
+devices yourself (suggestions never link on their own). Optional N1 probes approved
 TCP/HTTP/HTTPS targets only, with an address allowlist, DNS-rebinding protection and shared
 rate limits.
 
 **Operations** — admin-only panel in the sidebar (PL/EN, light/dark, 360 px, WCAG 2.1 AA
-audited), opt-in HA notifications, redacted export, data deletion, retention purge,
-Repairs issues for damaged or newer databases, diagnostics download, metrics.
+audited), module switches, opt-in HA notifications, redacted export, data deletion, retention
+purge with per-class budgets, HA backup status and an explicit backup request, Repairs issues
+for damaged or newer databases, diagnostics download, metrics.
 
 ## Install
 
