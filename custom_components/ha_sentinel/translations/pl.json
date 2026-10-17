@@ -13,23 +13,64 @@
   "options": {
     "step": {
       "init": {
-        "data": {
-          "doctor_unavailable_s": "Próg niedostępności (s)",
-          "doctor_startup_grace_s": "Okres karencji po starcie (s)",
-          "retention_observations_days": "Retencja obserwacji (dni)",
-          "storage_max_total_mib": "Budżet magazynu (MiB)",
-          "managed_write_enabled": "Pozwól Sentinel zapisywać pliki zarządzane (przywracanie)",
-          "managed_dir": "Katalog plików zarządzanych (w katalogu konfiguracji)",
-          "managed_reload_after_apply": "Przeładuj automatyzacje po przywróceniu",
-          "network_active_probes": "Aktywne sondy sieciowe (poziom N1, tylko zatwierdzone cele)",
-          "network_interval_s": "Interwał sond (s)",
-          "network_allowlist": "Dozwolone zakresy adresów (CIDR, po przecinku)",
-          "notifications_enabled": "Pokazuj nowe incydenty jako powiadomienia Home Assistant"
+        "sections": {
+          "modules": {
+            "name": "Moduły",
+            "data": {
+              "modules_doctor": "Doctor (reguły zdrowia); rdzeń działa także po wyłączeniu",
+              "modules_config_history": "Historia konfiguracji (importy, snapshoty, przywracanie)",
+              "modules_autopilot": "Autopilot (lint, szkice, replay; nie włącza AI)",
+              "modules_dependency_mapper": "Mapa zależności (inwentarz działa bez niej)",
+              "modules_network": "Sieć (domyślnie poziom N0)"
+            }
+          },
+          "ingestion": {
+            "name": "Obserwacja",
+            "data": {
+              "ingestion_allowed_domains": "Obserwowane domeny",
+              "ingestion_numeric_sampling": "Próbkowanie liczbowe dla wybranych encji i celów"
+            },
+            "data_description": {
+              "ingestion_allowed_domains": "Puste = wszystkie domeny poza wykluczeniami prywatności (osoby, strefy, lokalizatory, media, kamery, teksty). Wykluczenia prywatności zawsze mają pierwszeństwo."
+            }
+          },
+          "doctor": {
+            "name": "Doctor",
+            "data": {
+              "doctor_unavailable_s": "Próg niedostępności (s)",
+              "doctor_startup_grace_s": "Okres karencji po starcie (s)",
+              "notifications_enabled": "Pokazuj nowe incydenty jako powiadomienia Home Assistant"
+            }
+          },
+          "storage": {
+            "name": "Magazyn i retencja",
+            "data": {
+              "retention_observations_days": "Retencja obserwacji (dni)",
+              "retention_incidents_days": "Retencja incydentów (dni)",
+              "storage_max_total_mib": "Budżet magazynu (MiB)"
+            }
+          },
+          "managed": {
+            "name": "Pliki zarządzane",
+            "data": {
+              "managed_write_enabled": "Pozwól Sentinel zapisywać pliki zarządzane (przywracanie)",
+              "managed_dir": "Katalog plików zarządzanych (w katalogu konfiguracji)",
+              "managed_reload_after_apply": "Przeładuj automatyzacje po przywróceniu"
+            }
+          },
+          "network": {
+            "name": "Sieć",
+            "data": {
+              "network_active_probes": "Aktywne sondy sieciowe (poziom N1, tylko zatwierdzone cele)",
+              "network_interval_s": "Interwał sond (s)",
+              "network_allowlist": "Dozwolone zakresy adresów (CIDR, po przecinku)"
+            }
+          }
         }
       }
     },
     "error": {
-      "invalid_cidr": "Podaj jeden lub więcej zakresów CIDR oddzielonych przecinkami, np. 192.168.1.0/24."
+      "invalid_cidr": "Dozwolone zakresy adresów: podaj jeden lub więcej zakresów CIDR rozdzielonych przecinkami, np. 192.168.1.0/24."
     }
   },
   "entity": {

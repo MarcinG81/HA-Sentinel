@@ -32,28 +32,37 @@ async def test_options_flow_form_serialises_and_validates(hass, hass_client):
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    hass.states.async_set("sensor.t", "1")
+    hass.states.async_set("switch.s", "on")
     client = await hass_client()
     # Serialising the schema for the frontend must work (a custom validator broke it).
     resp = await client.post("/api/config/config_entries/options/flow",
                              json={"handler": entry.entry_id})
     assert resp.status == 200, await resp.text()
     flow = await resp.json()
-    fields = {f["name"] for f in flow["data_schema"]}
-    assert {"network_active_probes", "network_allowlist", "managed_write_enabled"} <= fields
+    sections = {f["name"]: f for f in flow["data_schema"]}
+    assert set(sections) == {"modules", "ingestion", "doctor", "storage", "managed", "network"}
+    assert all(f["type"] == "expandable" for f in sections.values())
+    fields = {name: {x["name"] for x in f["schema"]} for name, f in sections.items()}
+    assert {"network_active_probes", "network_allowlist"} <= fields["network"]
+    assert "ingestion_allowed_domains" in fields["ingestion"]
 
-    data = {**{k: v for k, v in DEFAULT_OPTIONS.items() if k in fields},
-            "network_allowlist": "not-a-cidr"}
+    data = {name: {k: DEFAULT_OPTIONS[k] for k in keys} for name, keys in fields.items()}
+    data["network"]["network_allowlist"] = "not-a-cidr"
     resp = await client.post(f"/api/config/config_entries/options/flow/{flow['flow_id']}",
                              json=data)
     body = await resp.json()
-    assert body["type"] == "form" and body["errors"] == {"network_allowlist": "invalid_cidr"}
+    assert body["type"] == "form" and body["errors"] == {"base": "invalid_cidr"}
 
-    data["network_allowlist"] = "192.168.1.0/24"
-    data["network_active_probes"] = True
+    data["network"]["network_allowlist"] = "192.168.1.0/24"
+    data["network"]["network_active_probes"] = True
+    data["ingestion"]["ingestion_allowed_domains"] = ["sensor", "switch"]
     resp = await client.post(f"/api/config/config_entries/options/flow/{flow['flow_id']}",
                              json=data)
     assert (await resp.json())["type"] == "create_entry"
     await hass.async_block_till_done()
-    assert entry.options["network_active_probes"] is True
+    assert entry.options["network_active_probes"] is True  # stored flat, not per section
+    assert entry.options["ingestion_allowed_domains"] == ["sensor", "switch"]
     runtime = hass.data[DOMAIN]["runtime"]  # the entry reloaded with the new options
+    assert runtime.allowed_domains == frozenset({"sensor", "switch"})
     assert runtime.network.active is True

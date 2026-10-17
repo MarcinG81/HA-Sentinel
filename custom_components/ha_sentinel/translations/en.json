@@ -13,23 +13,64 @@
   "options": {
     "step": {
       "init": {
-        "data": {
-          "doctor_unavailable_s": "Unavailable threshold (s)",
-          "doctor_startup_grace_s": "Startup grace period (s)",
-          "retention_observations_days": "Observation retention (days)",
-          "storage_max_total_mib": "Storage budget (MiB)",
-          "managed_write_enabled": "Allow Sentinel to write managed files (restore)",
-          "managed_dir": "Managed files directory (inside the config directory)",
-          "managed_reload_after_apply": "Reload automations after restore",
-          "network_active_probes": "Active network probes (level N1, approved targets only)",
-          "network_interval_s": "Probe interval (s)",
-          "network_allowlist": "Allowed address ranges (CIDR, comma separated)",
-          "notifications_enabled": "Show new incidents as Home Assistant notifications"
+        "sections": {
+          "modules": {
+            "name": "Modules",
+            "data": {
+              "modules_doctor": "Doctor (health rules); core keeps running when off",
+              "modules_config_history": "Configuration history (imports, snapshots, restore)",
+              "modules_autopilot": "Autopilot (lint, drafts, replay; never enables AI)",
+              "modules_dependency_mapper": "Dependency map (inventory works without it)",
+              "modules_network": "Network (level N0 by default)"
+            }
+          },
+          "ingestion": {
+            "name": "Observation",
+            "data": {
+              "ingestion_allowed_domains": "Observed domains",
+              "ingestion_numeric_sampling": "Numeric sampling for selected entities and purposes"
+            },
+            "data_description": {
+              "ingestion_allowed_domains": "Empty = every domain except privacy exclusions (person, zone, trackers, media, cameras, text). Privacy exclusions always win."
+            }
+          },
+          "doctor": {
+            "name": "Doctor",
+            "data": {
+              "doctor_unavailable_s": "Unavailable threshold (s)",
+              "doctor_startup_grace_s": "Startup grace period (s)",
+              "notifications_enabled": "Show new incidents as Home Assistant notifications"
+            }
+          },
+          "storage": {
+            "name": "Storage and retention",
+            "data": {
+              "retention_observations_days": "Observation retention (days)",
+              "retention_incidents_days": "Incident retention (days)",
+              "storage_max_total_mib": "Storage budget (MiB)"
+            }
+          },
+          "managed": {
+            "name": "Managed files",
+            "data": {
+              "managed_write_enabled": "Allow Sentinel to write managed files (restore)",
+              "managed_dir": "Managed files directory (inside the config directory)",
+              "managed_reload_after_apply": "Reload automations after restore"
+            }
+          },
+          "network": {
+            "name": "Network",
+            "data": {
+              "network_active_probes": "Active network probes (level N1, approved targets only)",
+              "network_interval_s": "Probe interval (s)",
+              "network_allowlist": "Allowed address ranges (CIDR, comma separated)"
+            }
+          }
         }
       }
     },
     "error": {
-      "invalid_cidr": "Enter one or more CIDR ranges separated by commas, e.g. 192.168.1.0/24."
+      "invalid_cidr": "Allowed address ranges: enter one or more CIDR ranges separated by commas, e.g. 192.168.1.0/24."
     }
   },
   "entity": {

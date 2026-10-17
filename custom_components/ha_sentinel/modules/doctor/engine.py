@@ -178,6 +178,19 @@ class DoctorEngine:
                 out += self._resolve(rule, uid, now_us, reason="rule_disabled")
         return out
 
+    def close_all(self, now_us: int, reason: str) -> list[Finding]:
+        """Close every active finding and forget pending timers (module switched off)."""
+        out = []
+        for fp, f in list(self._findings.items()):
+            del self._findings[fp]
+            if f.status is FindingStatus.ACTIVE:
+                f.status = FindingStatus.RESOLVED
+                f.resolved_at_us = f.last_seen_us = now_us
+                f.details = {**f.details, "resolution": reason}
+                out.append(f)
+        self._heap.clear()
+        return out
+
     @property
     def heartbeat_subjects(self) -> frozenset[str]:
         return frozenset(self._heartbeats)

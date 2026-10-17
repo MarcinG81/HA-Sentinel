@@ -19,7 +19,7 @@ export const DATA = {
   "ha_sentinel/overview": { api_version: 1, revision: 7, state: "ready", reason_code: null, degradation_level: 0,
     health: { score: 83, score_partial: 83, coverage_pct: 92, coverage_complete_at: null, units: 42, maintenance_units: 1 },
     counters: { active_incidents: 3, active_findings: 3, entities: 187, queue_depth: 0, dropped_observations_total: 0 },
-    modules: { doctor: "ready", config_history: "ready", autopilot: "ready", dependency_mapper: "ready" } },
+    modules: { doctor: "ready", config_history: "ready", autopilot: "ready", dependency_mapper: "ready", network: "ready" } },
   "ha_sentinel/capabilities": { capabilities: caps },
   "ha_sentinel/incidents/list": { items, next_cursor: null, revision: 7 },
   "ha_sentinel/incidents/get": { ...infra, hypotheses: hyps, counter_evidence: [], confirmed_cause: null,

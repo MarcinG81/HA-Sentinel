@@ -54,6 +54,12 @@ from .const import (
     HEARTBEAT_MIN_INTERVAL_S,
     OPT_DOCTOR_STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S,
+    OPT_INGESTION_ALLOWED_DOMAINS,
+    OPT_MODULES_AUTOPILOT,
+    OPT_MODULES_CONFIG_HISTORY,
+    OPT_MODULES_DEPENDENCY_MAPPER,
+    OPT_MODULES_DOCTOR,
+    OPT_MODULES_NETWORK,
     SENSOR_THROTTLE_S,
     UNLOAD_FLUSH_TIMEOUT_S,
     WRITER_BATCH_SIZE,
@@ -127,6 +133,16 @@ class SentinelRuntime:
             unavailable_s=int(options[OPT_DOCTOR_UNAVAILABLE_S]),
             startup_grace_s=int(options[OPT_DOCTOR_STARTUP_GRACE_S]),
         )
+        # Module switches (spec 27.1); Core, ingestion and inventory always run.
+        self.modules_enabled = {
+            "doctor": bool(options[OPT_MODULES_DOCTOR]),
+            "config_history": bool(options[OPT_MODULES_CONFIG_HISTORY]),
+            "autopilot": bool(options[OPT_MODULES_AUTOPILOT]),
+            "dependency_mapper": bool(options[OPT_MODULES_DEPENDENCY_MAPPER]),
+            "network": bool(options[OPT_MODULES_NETWORK]),
+        }
+        # Empty = all domains; privacy exclusions win either way.
+        self.allowed_domains = frozenset(options[OPT_INGESTION_ALLOWED_DOMAINS])
         self.db = DatabaseWorker(Path(hass.config.path(DATA_DIR)) / DB_FILENAME)
         self.queues = IngestionQueues(self.clock, source_id=SOURCE_ID)
         self.inventory = Inventory(self.boot_id)
@@ -192,6 +208,11 @@ class SentinelRuntime:
         self.inventory.load(entities, devices)
         await self.maintenance.async_load()
         self.doctor.restore(await self.db.run(repo.load_active_findings))
+        if not self.modules_enabled["doctor"]:
+            # A switched-off Doctor must not leave findings that look current.
+            closed_by_module = self.doctor.close_all(self.clock.now_us(), "module_disabled")
+        else:
+            closed_by_module = []
         await self.rules.async_load()
         closed_by_overrides = self.doctor.set_overrides(self.rules.overrides,
                                                         self.clock.now_us())
@@ -217,7 +238,8 @@ class SentinelRuntime:
         # revised rules) are closed explicitly before anything else is correlated.
         await self.async_flush()
         self.refresh_heartbeat_tracking()
-        if stale := [*self.doctor.retire_stale(snapshot_done_us), *closed_by_overrides]:
+        if stale := [*self.doctor.retire_stale(snapshot_done_us), *closed_by_overrides,
+                     *closed_by_module]:
             await self._commit_findings(stale)
         self._writer_task = self.entry.async_create_background_task(
             self.hass, self._writer_loop(), f"{DOMAIN}_writer"
@@ -229,14 +251,20 @@ class SentinelRuntime:
         await self._start_config_services()
         self.data = DataServices(self)
         await self.data.async_start()
-        self.network = NetworkService(self)
-        try:
-            await self.network.async_start()
-            status, reason = self.network.capability
-        except Exception:
-            # Network discovery must never take down Core or Doctor (AC NET 02).
-            _LOGGER.exception("Sentinel network module failed to start")
-            status, reason = CapabilityStatus.UNAVAILABLE, "network_failed"
+        if self.modules_enabled["network"]:
+            self.network = NetworkService(self)
+            try:
+                await self.network.async_start()
+                status, reason = self.network.capability
+                self.module_states["network"] = ModuleState.READY
+            except Exception:
+                # Network discovery must never take down Core or Doctor (AC NET 02).
+                _LOGGER.exception("Sentinel network module failed to start")
+                status, reason = CapabilityStatus.UNAVAILABLE, "network_failed"
+                self.module_states["network"] = ModuleState.FAILED
+        else:
+            status, reason = CapabilityStatus.DISABLED, "module_disabled"
+            self.module_states["network"] = ModuleState.DISABLED
         self.capabilities["network.probe"] = Capability("network.probe", status, reason)
         if self.config is not None:
             self.config.schedule_graph_rebuild()
@@ -295,7 +323,8 @@ class SentinelRuntime:
                 self.module_states[name] = ModuleState.FAILED
             return
         for name in names:
-            self.module_states[name] = ModuleState.READY
+            self.module_states[name] = (ModuleState.READY if self.modules_enabled[name]
+                                        else ModuleState.DISABLED)
 
     def _build_capabilities(self, mode: DbMode) -> None:
         caps = [
@@ -355,6 +384,8 @@ class SentinelRuntime:
     def _observed(self, entity_id: str) -> bool:
         """Privacy-excluded domains and Sentinel's own entities are never observed."""
         if not is_observed(entity_id):
+            return False
+        if self.allowed_domains and entity_id.split(".", 1)[0] not in self.allowed_domains:
             return False
         reg = er.async_get(self.hass).async_get(entity_id)
         return reg is None or reg.platform != DOMAIN
@@ -426,7 +457,8 @@ class SentinelRuntime:
         state_changed; both count as a report. Only contracted entities are tracked.
         """
         aliases = {}
-        for uid in self.doctor.heartbeat_subjects:
+        subjects = self.doctor.heartbeat_subjects if self.modules_enabled["doctor"] else ()
+        for uid in subjects:
             ent = self.inventory.get(uid)
             if ent is not None and ent.deleted_at_us is None:
                 aliases[ent.current_alias] = uid
@@ -547,7 +579,8 @@ class SentinelRuntime:
         now_us = self.clock.now_us()
         for obs in drained.observations:
             self.metrics.observe("ingestion_lag_ms", (now_us - obs.received_at_us) / 1000)
-            changed += self.doctor.process(obs)
+            if self.modules_enabled["doctor"]:
+                changed += self.doctor.process(obs)
         if drained.observations:
             self.metrics.observe("rules_duration_ms", (time.perf_counter() - t0) * 1000)
         await self._commit_findings(changed)
@@ -589,7 +622,9 @@ class SentinelRuntime:
                                  r["opened_at_us"], r["root_uid"])
                 for r in await self.db.run(repo.load_active_incidents)
             ]
-            graph = self.config.graph if self.config is not None else DependencyGraph()
+            # Without the dependency map only singleton incidents remain (no shared parents).
+            graph = (self.config.graph if self.config is not None
+                     and self.modules_enabled["dependency_mapper"] else DependencyGraph())
             evidence = self._evidence.collect(self.hass, now)
             if self.network is not None:
                 evidence.update(self.network.evidence())
@@ -619,6 +654,8 @@ class SentinelRuntime:
     # --- Doctor timers -------------------------------------------------------------
 
     def _reschedule_doctor(self) -> None:
+        if not self.modules_enabled["doctor"]:
+            return
         deadline = self.doctor.next_deadline_us()
         if deadline == self._doctor_deadline or self._stopping:
             return
@@ -752,6 +789,8 @@ class SentinelRuntime:
         }
 
     def health(self) -> HealthResult:
+        if not self.modules_enabled["doctor"]:
+            return HealthResult(None, None, None, 0)  # no rules ran: never "healthy"
         now = self.clock.now_us()
         covered = self.coverage.is_complete(now - COVERAGE_WINDOW_S * S, now)
         groups: dict[str, set[str]] = {}
@@ -801,7 +840,8 @@ class SentinelRuntime:
                 "queue_depth": self.queues.depth,
                 "dropped_observations_total": self.queues.stats.dropped_total,
             },
-            "modules": {"doctor": str(self.state),
+            "modules": {"doctor": str(self.state if self.modules_enabled["doctor"]
+                                      else ModuleState.DISABLED),
                         **{k: str(v) for k, v in self.module_states.items()}},
         }
 

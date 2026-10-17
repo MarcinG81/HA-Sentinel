@@ -12,21 +12,36 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .const import (
     DEFAULT_OPTIONS,
     DOMAIN,
     OPT_DOCTOR_STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S,
+    OPT_INGESTION_ALLOWED_DOMAINS,
+    OPT_INGESTION_NUMERIC_SAMPLING,
     OPT_MANAGED_DIR,
     OPT_MANAGED_RELOAD,
     OPT_MANAGED_WRITE_ENABLED,
+    OPT_MODULES_AUTOPILOT,
+    OPT_MODULES_CONFIG_HISTORY,
+    OPT_MODULES_DEPENDENCY_MAPPER,
+    OPT_MODULES_DOCTOR,
+    OPT_MODULES_NETWORK,
     OPT_NETWORK_ACTIVE_PROBES,
     OPT_NETWORK_ALLOWLIST,
     OPT_NETWORK_INTERVAL_S,
     OPT_NOTIFICATIONS_ENABLED,
+    OPT_RETENTION_INCIDENTS_DAYS,
     OPT_RETENTION_OBSERVATIONS_DAYS,
     OPT_STORAGE_MAX_TOTAL_MIB,
+    PRIVACY_EXCLUDED_DOMAINS,
 )
 from .core.models import new_uuid
 
@@ -59,40 +74,68 @@ class SentinelConfigFlow(ConfigFlow, domain=DOMAIN):
         return SentinelOptionsFlow()
 
 
+# Option groups shown as collapsible sections; stored flat in entry.options.
+SECTIONS: dict[str, tuple[str, ...]] = {
+    "modules": (OPT_MODULES_DOCTOR, OPT_MODULES_CONFIG_HISTORY, OPT_MODULES_AUTOPILOT,
+                OPT_MODULES_DEPENDENCY_MAPPER, OPT_MODULES_NETWORK),
+    "ingestion": (OPT_INGESTION_ALLOWED_DOMAINS, OPT_INGESTION_NUMERIC_SAMPLING),
+    "doctor": (OPT_DOCTOR_UNAVAILABLE_S, OPT_DOCTOR_STARTUP_GRACE_S, OPT_NOTIFICATIONS_ENABLED),
+    "storage": (OPT_RETENTION_OBSERVATIONS_DAYS, OPT_RETENTION_INCIDENTS_DAYS,
+                OPT_STORAGE_MAX_TOTAL_MIB),
+    "managed": (OPT_MANAGED_WRITE_ENABLED, OPT_MANAGED_DIR, OPT_MANAGED_RELOAD),
+    "network": (OPT_NETWORK_ACTIVE_PROBES, OPT_NETWORK_INTERVAL_S, OPT_NETWORK_ALLOWLIST),
+}
+
+
+def _int(lo: int, hi: int) -> vol.All:
+    return vol.All(vol.Coerce(int), vol.Range(min=lo, max=hi))
+
+
 class SentinelOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+        flat: dict[str, Any] = {}
+        for group in (user_input or {}).values():
+            if isinstance(group, dict):
+                flat.update(group)
         if user_input is not None:
-            if _allowlist_ok(user_input.get(OPT_NETWORK_ALLOWLIST, "")):
-                return self.async_create_entry(data={**self.config_entry.options, **user_input})
-            errors[OPT_NETWORK_ALLOWLIST] = "invalid_cidr"
-        opts = {**DEFAULT_OPTIONS, **self.config_entry.options, **(user_input or {})}
-        schema = vol.Schema(
-            {
-                vol.Required(OPT_DOCTOR_UNAVAILABLE_S, default=opts[OPT_DOCTOR_UNAVAILABLE_S]):
-                    vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
-                vol.Required(OPT_DOCTOR_STARTUP_GRACE_S,
-                             default=opts[OPT_DOCTOR_STARTUP_GRACE_S]):
-                    vol.All(vol.Coerce(int), vol.Range(min=30, max=600)),
-                vol.Required(OPT_RETENTION_OBSERVATIONS_DAYS,
-                             default=opts[OPT_RETENTION_OBSERVATIONS_DAYS]):
-                    vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
-                vol.Required(OPT_STORAGE_MAX_TOTAL_MIB, default=opts[OPT_STORAGE_MAX_TOTAL_MIB]):
-                    vol.All(vol.Coerce(int), vol.Range(min=256, max=16384)),
-                vol.Required(OPT_NOTIFICATIONS_ENABLED,
-                             default=opts[OPT_NOTIFICATIONS_ENABLED]): bool,
-                vol.Required(OPT_MANAGED_WRITE_ENABLED,
-                             default=opts[OPT_MANAGED_WRITE_ENABLED]): bool,
-                vol.Required(OPT_MANAGED_DIR, default=opts[OPT_MANAGED_DIR]):
-                    vol.All(str, vol.Match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")),
-                vol.Required(OPT_MANAGED_RELOAD, default=opts[OPT_MANAGED_RELOAD]): bool,
-                vol.Required(OPT_NETWORK_ACTIVE_PROBES,
-                             default=opts[OPT_NETWORK_ACTIVE_PROBES]): bool,
-                vol.Required(OPT_NETWORK_INTERVAL_S, default=opts[OPT_NETWORK_INTERVAL_S]):
-                    vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
-                # Plain str: the schema must stay serialisable for the frontend form;
-                # CIDR validation happens in the step and is reported as a form error.
-                vol.Required(OPT_NETWORK_ALLOWLIST, default=opts[OPT_NETWORK_ALLOWLIST]): str,
-            }
-        )
+            if _allowlist_ok(flat.get(OPT_NETWORK_ALLOWLIST, "")):
+                return self.async_create_entry(data={**self.config_entry.options, **flat})
+            errors["base"] = "invalid_cidr"
+        opts = {**DEFAULT_OPTIONS, **self.config_entry.options, **flat}
+        # Domains present now, minus privacy exclusions (they always win, spec 27.1).
+        domains = sorted(
+            ({s.domain for s in self.hass.states.async_all()}
+             | set(opts[OPT_INGESTION_ALLOWED_DOMAINS])) - PRIVACY_EXCLUDED_DOMAINS)
+        fields: dict[str, Any] = {
+            OPT_MODULES_DOCTOR: bool,
+            OPT_MODULES_CONFIG_HISTORY: bool,
+            OPT_MODULES_AUTOPILOT: bool,
+            OPT_MODULES_DEPENDENCY_MAPPER: bool,
+            OPT_MODULES_NETWORK: bool,
+            OPT_INGESTION_ALLOWED_DOMAINS: SelectSelector(SelectSelectorConfig(
+                options=domains, multiple=True, mode=SelectSelectorMode.DROPDOWN)),
+            OPT_INGESTION_NUMERIC_SAMPLING: bool,
+            OPT_DOCTOR_UNAVAILABLE_S: _int(30, 3600),
+            OPT_DOCTOR_STARTUP_GRACE_S: _int(30, 600),
+            OPT_NOTIFICATIONS_ENABLED: bool,
+            OPT_RETENTION_OBSERVATIONS_DAYS: _int(1, 30),
+            OPT_RETENTION_INCIDENTS_DAYS: _int(7, 365),
+            OPT_STORAGE_MAX_TOTAL_MIB: _int(256, 16384),
+            OPT_MANAGED_WRITE_ENABLED: bool,
+            OPT_MANAGED_DIR: vol.All(str, vol.Match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")),
+            OPT_MANAGED_RELOAD: bool,
+            OPT_NETWORK_ACTIVE_PROBES: bool,
+            OPT_NETWORK_INTERVAL_S: _int(60, 3600),
+            # Plain str: the schema must stay serialisable for the frontend form;
+            # CIDR validation happens in the step and is reported as a form error.
+            OPT_NETWORK_ALLOWLIST: str,
+        }
+        schema = vol.Schema({
+            vol.Required(name): section(
+                vol.Schema({vol.Required(key, default=opts[key]): fields[key] for key in keys}),
+                {"collapsed": name not in ("modules", "doctor")},
+            )
+            for name, keys in SECTIONS.items()
+        })
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

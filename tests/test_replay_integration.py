@@ -41,7 +41,7 @@ async def _call(client, **msg):
 
 async def test_t10_replay_uses_history_and_calls_nothing(recorder_mock, hass, hass_ws_client):
     entry = MockConfigEntry(domain=DOMAIN, data={"instance_id": str(uuid.uuid4())},
-                            options=dict(DEFAULT_OPTIONS))
+                            options={**DEFAULT_OPTIONS, "modules_autopilot": True})
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -81,7 +81,7 @@ async def test_t10_replay_uses_history_and_calls_nothing(recorder_mock, hass, ha
 
 async def test_replay_without_recorder_is_unsupported(hass, hass_ws_client):
     entry = MockConfigEntry(domain=DOMAIN, data={"instance_id": str(uuid.uuid4())},
-                            options=dict(DEFAULT_OPTIONS))
+                            options={**DEFAULT_OPTIONS, "modules_autopilot": True})
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

@@ -89,7 +89,7 @@ async def test_standard_profile(hass, hass_ws_client):
 
     mark("fixture")
     entry = MockConfigEntry(domain=DOMAIN, data={"instance_id": str(uuid.uuid4())},
-                            options=dict(DEFAULT_OPTIONS))
+                            options={**DEFAULT_OPTIONS, "modules_autopilot": True})
     entry.add_to_hass(hass)
     t0 = time.perf_counter()
     assert await hass.config_entries.async_setup(entry.entry_id)

@@ -36,7 +36,7 @@ def _h(text: str) -> str:
 @pytest.fixture
 async def client(hass: HomeAssistant, hass_ws_client):
     sentinel = MockConfigEntry(domain=DOMAIN, data={"instance_id": str(uuid.uuid4())},
-                               options=dict(DEFAULT_OPTIONS))
+                               options={**DEFAULT_OPTIONS, "modules_autopilot": True})
     sentinel.add_to_hass(hass)
     other = MockConfigEntry(domain="mqtt", title="MQTT")
     other.add_to_hass(hass)

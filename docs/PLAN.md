@@ -163,7 +163,8 @@ Pełny przegląd rozdziałów 1–29 względem kodu. Realizacja po kolei, każdy
 | # | Pakiet | Rozdział | Status |
 |---|---|---|---|
 | G1 | Kontrakt heartbeat dla DOC005: deklaracja encji i okresu (API + UI), próg ręczny, T06 | 8.1, 8.4 | **zrobione** |
-| G2 | Opcje `ingestion.allowed_domains` i `ingestion.numeric_sampling` (wybór encji), ręczne mapowanie baterii | 5.1, 27.1 | do zrobienia |
+| G2a | Komplet opcji 27.1: działające przełączniki modułów, `ingestion.allowed_domains`, `retention.incidents_days`, sekcje formularza | 27.1 | **zrobione** |
+| G2b | Źródła liczbowe: `ingestion.numeric_sampling` z wyborem encji i celu, ręczne mapowanie baterii (wspólna podstawa dla DOC008) | 5.1, 27.1 | do zrobienia |
 | G3 | Kreator szkiców Autopilota: state / numeric_state trigger, warunek state, `light.turn_on/off`, mode, cooldown → YAML przez ten sam parser i lint, eksport | 11.1, AC AUT 04 | do zrobienia |
 | G4 | N0: model hosta (`NetworkHost`, adresy, identity_keys) i ręczne powiązanie host ↔ urządzenie HA, sugestie z hostname/IP tylko jako sugestie | 13.1, 13.2, AC NET 01 | do zrobienia |
 
@@ -199,3 +200,11 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Raport = `state_changed` albo `state_reported` (ta sama wartość) w stanie dostępnym; śledzone tylko encje z kontraktem (`async_track_state_report_event`), zapis co najwyżej raz na 5 s. Niedostępność nie jest raportem — wcześniej przejście do `unavailable` błędnie odnawiało heartbeat.
 - Nadpisania: DOC001 `unavailable_s`, DOC002 `unknown_s`, DOC003 `flap_threshold`, DOC004 `low_pct`/`clear_pct`, `enabled` dla DOC001–005 i DOC009. Wyłączenie reguły zamyka aktywny finding z powodem `rule_disabled`; trwające liczniki czasu zachowują stary próg.
 - Środowisko dev: lokalne HA na Pythonie 3.14 nie ma natywnego `pymicro_vad` (assist pipeline), przez co frontend HA wisiał na `get_services`. Do testów na żywo atrapy modułów w `PYTHONPATH`; kod Sentinel bez zmian.
+
+### G2a — decyzje
+
+- Przełączniki modułów działają: wyłączony moduł odpowiada `unsupported_capability` z `reason=module_disabled` (mapa prefiksów komend w API), panel pokazuje kartę „moduł wyłączony” zamiast pustego widoku. Autopilot domyślnie wyłączony (27.1).
+- Doctor wyłączony: aktywne findings zamykane przy starcie (`module_disabled`), brak timerów, wynik zdrowia `unknown` (nigdy „zdrowy” bez reguł).
+- Mapa zależności wyłączona: `graph/query` niedostępne, korelacja bez wspólnych przodków (same incydenty pojedyncze); wyszukiwanie obiektów zostaje (służy innym kartom jako wyszukiwarka inwentarza).
+- `ingestion.allowed_domains`: pusta lista = wszystkie domeny poza wykluczeniami prywatności; wykluczenia zawsze mają pierwszeństwo.
+- Formularz opcji w sekcjach (`data_entry_flow.section`), zapis płaski w `entry.options`; błąd CIDR jako błąd formularza (`base`).

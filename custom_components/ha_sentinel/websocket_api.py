@@ -127,6 +127,25 @@ def _runtime(hass: HomeAssistant):
     return runtime
 
 
+# Command prefix -> module switch (spec 27.1). A disabled module answers
+# unsupported_capability with reason module_disabled; Core commands are never gated.
+MODULE_OF_PREFIX = {
+    "import/": "config_history", "snapshots/": "config_history",
+    "resources/": "config_history", "managed/": "config_history", "changes/": "config_history",
+    "autopilot/": "autopilot",
+    "graph/query": "dependency_mapper",
+    "network/": "network",
+}
+
+
+def _require_module(runtime, command: str) -> None:
+    name = command.removeprefix(f"{DOMAIN}/")
+    for prefix, module in MODULE_OF_PREFIX.items():
+        if name.startswith(prefix) and not runtime.modules_enabled[module]:
+            raise SentinelError(ErrorCode.UNSUPPORTED_CAPABILITY, "module is disabled",
+                                reason="module_disabled", module=module)
+
+
 def _guarded(cls: RequestClass) -> Callable:
     """Resolve the runtime, apply the rate limit and translate domain errors."""
 
@@ -139,6 +158,7 @@ def _guarded(cls: RequestClass) -> Callable:
                 runtime = _runtime(hass)
                 if not runtime.rate_limiter.allow(connection.user.id, cls):
                     raise SentinelError(ErrorCode.RATE_LIMITED, "too many requests")
+                _require_module(runtime, msg["type"])
                 await func(hass, connection, msg, runtime)
             except SentinelError as err:
                 error: dict[str, Any] = {"code": str(err.code), "message": str(err)}
@@ -472,7 +492,9 @@ async def ws_subscribe(hass, connection, msg, runtime) -> None:
 
 def _config(runtime):
     cfg = runtime.config
-    if cfg is None or runtime.module_states.get("config_history") is not ModuleState.READY:
+    # Switched-off modules are gated per command; only a failed start blocks here.
+    if cfg is None or runtime.module_states.get("config_history") in (
+            None, ModuleState.FAILED, ModuleState.STARTING):
         raise SentinelError(ErrorCode.NOT_READY, "configuration modules are not ready")
     return cfg
 

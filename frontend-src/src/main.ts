@@ -42,6 +42,14 @@ function viewFromPath(path: string | undefined): View {
   return VIEWS.includes(v) ? v : "overview";
 }
 
+// Views that belong to a module which can be switched off in the options (spec 27.1).
+const MODULE_OF_VIEW: Record<string, string> = {
+  history: "config_history",
+  autopilot: "autopilot",
+  map: "dependency_mapper",
+  network: "network",
+};
+
 class SentinelPanel extends HTMLElement {
   private _hass?: Hass;
   private _narrow = false;
@@ -247,14 +255,24 @@ class SentinelPanel extends HTMLElement {
     try {
       content = await this.renderView();
     } catch (err) {
-      content = this.errorCard(err as WsError);
+      const e = err as WsError;
+      content = e?.details?.reason === "module_disabled" ? this.disabledCard(e.details.module ?? "") : this.errorCard(e);
     }
     if (token !== this.renderToken) return; // a newer render superseded this one
     const banner = this.stale ? h("div", { class: "banner", role: "alert" }, this.t("stale")) : null;
     this.main.replaceChildren(...(banner ? [banner] : []), content);
   }
 
-  private renderView(): Promise<HTMLElement> {
+  private async renderView(): Promise<HTMLElement> {
+    const module = MODULE_OF_VIEW[this.view];
+    if (module) {
+      const ov = await this.ws<Overview>({ type: "ha_sentinel/overview" });
+      if (ov.modules[module] === "disabled") return this.disabledCard(module);
+    }
+    return this.renderViewContent();
+  }
+
+  private renderViewContent(): Promise<HTMLElement> {
     switch (this.view) {
       case "overview":
         return this.renderOverview();
@@ -275,6 +293,18 @@ class SentinelPanel extends HTMLElement {
       default:
         return this.renderModulePlaceholder(this.view);
     }
+  }
+
+  /** A module switched off in the options: say so, never show an empty "all good" view. */
+  private disabledCard(module: string): HTMLElement {
+    const t = this.t;
+    return h(
+      "section",
+      { class: "card", "aria-labelledby": "h-off" },
+      h("h2", { id: "h-off" }, t(`modname.${module}`)),
+      h("div", { class: "banner", role: "note" }, t("module.disabled_hint")),
+      h("div", { class: "actions" }, this.settingsLink()),
+    );
   }
 
   private errorCard(err: WsError): HTMLElement {
@@ -796,26 +826,30 @@ class SentinelPanel extends HTMLElement {
 
   private renderSettings(): HTMLElement {
     const t = this.t;
-    const path = "/config/integrations/integration/ha_sentinel";
     return h(
       "section",
       { class: "card" },
       h("h2", {}, t("tab.settings")),
       h("p", {}, t("settings.hint")),
-      h(
-        "a",
-        {
-          class: "secondary",
-          href: path,
-          onclick: (e: Event) => {
-            // In-app navigation the way HA panels do it, without a full page reload.
-            e.preventDefault();
-            history.pushState(null, "", path);
-            window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
-          },
+      this.settingsLink(),
+    );
+  }
+
+  private settingsLink(): HTMLElement {
+    const path = "/config/integrations/integration/ha_sentinel";
+    return h(
+      "a",
+      {
+        class: "secondary",
+        href: path,
+        onclick: (e: Event) => {
+          // In-app navigation the way HA panels do it, without a full page reload.
+          e.preventDefault();
+          history.pushState(null, "", path);
+          window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
         },
-        t("settings.open"),
-      ),
+      },
+      this.t("settings.open"),
     );
   }
 }
