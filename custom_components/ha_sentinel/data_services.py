@@ -43,6 +43,7 @@ _LOGGER = logging.getLogger(__name__)
 PURGE_INTERVAL = timedelta(hours=1)
 EXPORT_TTL_US = jobs.JOB_RESULT_TTL_US
 AUDIT_BUDGET_BYTES = 64 * 1024 * 1024  # spec 7.3
+BLOB_GRACE_S = 3600
 MAX_PURGE_ROUNDS = 200
 
 
@@ -282,8 +283,16 @@ class DataServices:
     def _purge_files(self, referenced: set[str]) -> int:
         removed = 0
         blobs = self.root / "blobs"
+        # Only blobs older than the grace period: a blob written after the reference list
+        # was read (new snapshot, new graph revision) must not be taken for an orphan.
+        young = time.time() - BLOB_GRACE_S
         if blobs.is_dir():
             for path in blobs.glob("*/*"):
+                try:
+                    if path.stat().st_mtime > young:
+                        continue
+                except FileNotFoundError:
+                    continue
                 if path.name.startswith(".tmp-") or f"sha256:{path.name}" not in referenced:
                     path.unlink(missing_ok=True)
                     removed += 1

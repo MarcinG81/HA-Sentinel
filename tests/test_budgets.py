@@ -31,8 +31,9 @@ async def _setup(hass):
     return hass.data[DOMAIN]["runtime"]
 
 
-async def test_samples_become_aggregates_and_snapshots_are_capped(hass):
+async def test_samples_become_aggregates_and_snapshots_are_capped(hass, monkeypatch):
     runtime = await _setup(hass)
+    monkeypatch.setattr(data_services, "BLOB_GRACE_S", -60)  # treat every blob as old
     now = runtime.clock.now_us()
     old = now - 10 * DAY  # beyond the 7-day observation retention
 
@@ -85,3 +86,11 @@ async def test_audit_over_budget_blocks_mutations_but_not_deletion(hass, hass_ws
     res = await _call(client, type=f"{DOMAIN}/data/delete", scope="observations",
                       confirm="observations", request_key=str(uuid.uuid4()))
     assert res.get("success") or res["error"]["details"].get("reason") != "audit_budget"
+
+
+async def test_young_orphan_blob_survives_the_purge(hass):
+    """A blob written after the reference list was read must not be deleted (race)."""
+    runtime = await _setup(hass)
+    ref = await hass.async_add_executor_job(runtime.config.blobs.put, b"written just now")
+    await runtime.data.async_purge()
+    assert await hass.async_add_executor_job(runtime.config.blobs.get, ref) == b"written just now"

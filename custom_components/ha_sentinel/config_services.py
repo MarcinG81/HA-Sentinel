@@ -195,7 +195,10 @@ class ConfigServices:
                 (revision, revision, versions.CHECKPOINT_EVERY)).fetchall()
             if not rows or rows[-1][0] != revision:
                 raise SentinelError(ErrorCode.NOT_FOUND, "graph revision not found")
-            return [json.loads(self.blobs.get(r[1])) for r in rows]
+            try:
+                return [json.loads(self.blobs.get(r[1])) for r in rows]
+            except (OSError, BlobCorruptedError) as err:
+                raise SentinelError(ErrorCode.NOT_FOUND, "graph revision unreadable") from err
 
         chain = await self.rt.db.run(load)
         return await self.hass.async_add_executor_job(versions.rebuild, chain)
