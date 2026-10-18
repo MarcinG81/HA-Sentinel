@@ -31,6 +31,16 @@ Additional banners:
 - **Configuration changed shortly before.** An automation on the dependency path changed in
   the 30 minutes before the start. This is listed separately and never raises the ranking.
 
+**Rules that raised this incident.** Each rule with its affected objects and why it fired.
+If this is normal for these objects (a dryer that is switched off, a watch out of range),
+switch the rule off right here:
+- **Turn off for these N objects:** one change for all objects of the incident.
+- **Turn off for the whole device X:** shown when all objects belong to one device; it also
+  covers entities the device gets later.
+
+Heartbeat and expected-run contracts are per entity and are removed in *Rules per object*.
+Everything can be undone in *Rules per object*.
+
 Actions:
 - **Acknowledge.** "I've seen it." It does **not** mean fixed; the incident closes only
   when the problem recovers.

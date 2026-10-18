@@ -3,7 +3,7 @@
 Local health, change history and dependency insight for Home Assistant: what stopped
 working, since when, what it depends on, and what you can safely do about it.
 
-Status: **0.1.0-dev** — roadmap in [docs/PLAN.md](docs/PLAN.md), operations in
+Status: **0.2.0** — roadmap in [docs/PLAN.md](docs/PLAN.md), operations in
 [docs/RUNBOOK.md](docs/RUNBOOK.md), supported versions in
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 

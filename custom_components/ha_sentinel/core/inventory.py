@@ -125,7 +125,34 @@ class Inventory:
             self._devices[ha_device_id] = dev
             self._device_by_uid[dev.uid] = dev
             changes.append(InventoryChange(device=dev))
+        elif dev.deleted_at_us is not None:
+            dev.deleted_at_us = None  # the same registry device is back
+            changes.append(InventoryChange(device=dev))
         return dev.uid
+
+    def remove_device(self, ha_device_id: str, now_us: int) -> InventoryChange | None:
+        """Tombstone a device that left the device registry."""
+        dev = self._devices.get(ha_device_id)
+        if dev is None or dev.deleted_at_us is not None:
+            return None
+        dev.deleted_at_us = now_us
+        return InventoryChange(device=dev)
+
+    def forget_deleted_before(self, cutoff_us: int) -> tuple[set[str], set[str]]:
+        """Drop tombstones older than the cleanup window from memory (the purge removed
+        them from the database); returns (entity uids, device keys) that were dropped."""
+        entities = {uid for uid, e in self._by_uid.items()
+                    if e.deleted_at_us is not None and e.deleted_at_us < cutoff_us}
+        for uid in entities:
+            ent = self._by_uid.pop(uid)
+            if ent.registry_id is not None and self._by_registry.get(ent.registry_id) == uid:
+                del self._by_registry[ent.registry_id]
+        devices = {d.ha_device_id for d in self._devices.values()
+                   if d.deleted_at_us is not None and d.deleted_at_us < cutoff_us}
+        for ha_id in devices:
+            dev = self._devices.pop(ha_id)
+            self._device_by_uid.pop(dev.uid, None)
+        return entities, {f"device:{d}" for d in devices}
 
     def observe(
         self,

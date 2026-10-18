@@ -6,6 +6,7 @@ File I/O runs in executors; SQLite runs on the DB worker. Only files inside
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
@@ -24,6 +25,7 @@ from .const import (
     DATA_DIR,
     DEFAULT_OPTIONS,
     DOMAIN,
+    OPT_CLEANUP_WINDOW_DAYS,
     OPT_RETENTION_INCIDENTS_DAYS,
     OPT_RETENTION_OBSERVATIONS_DAYS,
     OPT_STORAGE_MAX_TOTAL_MIB,
@@ -58,6 +60,7 @@ class DataServices:
         self.storage_ratio = 0.0
         self.storage_level = 0  # 0 ok, 1 soft (>= 80 %), 2 hard (>= 95 %)
         self.findings: dict[str, Finding] = {}
+        self._purge_task: asyncio.Task | None = None
 
     async def async_start(self) -> None:
         if self.rt.storage_writable:
@@ -70,6 +73,9 @@ class DataServices:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        if self._purge_task is not None and not self._purge_task.done():
+            # Let a running purge finish its batch before the database closes.
+            await asyncio.wait({self._purge_task}, timeout=5)
 
     # --- Storage pressure (spec 7.3, DOC010) ---------------------------------------------------
 
@@ -257,10 +263,13 @@ class DataServices:
 
     @callback
     def _purge_tick(self, _now) -> None:
-        self.rt.entry.async_create_task(self.hass, self.async_purge(), f"{DOMAIN}_purge")
+        if self.rt.stopping or (self._purge_task is not None and not self._purge_task.done()):
+            return
+        self._purge_task = self.rt.entry.async_create_task(self.hass, self.async_purge(),
+                                                           f"{DOMAIN}_purge")
 
     async def async_purge(self) -> dict[str, int]:
-        if not self.rt.storage_writable:
+        if not self.rt.storage_writable or self.rt.stopping:
             return {}
         opts = {**DEFAULT_OPTIONS, **self.rt.entry.options}
         totals: dict[str, int] = {}
@@ -268,11 +277,16 @@ class DataServices:
             now = self.rt.clock.now_us()
             counts = await self.rt.db.run(lambda c, now=now: jobs.purge_batch(
                 c, now, observations_days=int(opts[OPT_RETENTION_OBSERVATIONS_DAYS]),
-                incidents_days=int(opts[OPT_RETENTION_INCIDENTS_DAYS])))
+                incidents_days=int(opts[OPT_RETENTION_INCIDENTS_DAYS]),
+                cleanup_days=int(opts[OPT_CLEANUP_WINDOW_DAYS])))
             for k, v in counts.items():
                 totals[k] = totals.get(k, 0) + v
             if not any(counts.values()):
                 break
+        if totals.get("entities") or totals.get("devices"):
+            cutoff = self.rt.clock.now_us() - int(opts[OPT_CLEANUP_WINDOW_DAYS]) * 86_400_000_000
+            self.rt.inventory.forget_deleted_before(cutoff)
+            await self.rt.reload_object_settings()
         refs = await self.rt.db.run(jobs.referenced_blobs)
         totals["blobs"] = await self.hass.async_add_executor_job(self._purge_files, refs)
         await self.rt.db.run(lambda c: c.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall())

@@ -51,6 +51,7 @@ OPT_MODULES_NETWORK = "modules_network"
 OPT_STORAGE_MAX_TOTAL_MIB = "storage_max_total_mib"
 OPT_RETENTION_OBSERVATIONS_DAYS = "retention_observations_days"
 OPT_RETENTION_INCIDENTS_DAYS = "retention_incidents_days"
+OPT_CLEANUP_WINDOW_DAYS = "cleanup_window_days"
 OPT_DOCTOR_STARTUP_GRACE_S = "doctor_startup_grace_s"
 OPT_DOCTOR_UNAVAILABLE_S = "doctor_unavailable_s"
 OPT_MANAGED_WRITE_ENABLED = "managed_write_enabled"
@@ -72,6 +73,8 @@ DEFAULT_OPTIONS: dict[str, object] = {
     OPT_STORAGE_MAX_TOTAL_MIB: 1024,
     OPT_RETENTION_OBSERVATIONS_DAYS: 7,
     OPT_RETENTION_INCIDENTS_DAYS: 90,
+    # Objects gone or inactive longer than this: purged from Sentinel, listed for HA cleanup.
+    OPT_CLEANUP_WINDOW_DAYS: 30,
     OPT_DOCTOR_STARTUP_GRACE_S: STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S: DOC001_UNAVAILABLE_S,
     # Writing managed files is off until the admin enables it (spec 18.2 step 6).

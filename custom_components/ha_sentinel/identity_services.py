@@ -65,10 +65,7 @@ class IdentityService:
 
         moved = await self.rt.db.run(write)
         if confirm and any(moved.values()):
-            await self.rt.rules._apply()  # noqa: SLF001 - same integration
-            await self.rt.numeric.async_load()
-            self.rt.refresh_numeric_tracking()
-            await self.rt.async_load_weights()
+            await self.rt.reload_object_settings()
             await self.rt.config_changed(actor)
         self.rt.bump()
         return moved

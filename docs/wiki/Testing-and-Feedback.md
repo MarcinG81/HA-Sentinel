@@ -32,7 +32,6 @@ Please include:
 
 - On the first start, devices that were already unavailable show up as incidents dated at
   Sentinel's start time ("at least since").
-- Rule settings are per entity; switching a rule off for a whole device is planned.
 - Tested on Home Assistant 2026.5.1 and 2026.10.2.
 
 ## For developers

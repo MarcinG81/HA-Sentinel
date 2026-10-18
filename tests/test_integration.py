@@ -32,6 +32,7 @@ WS_COMMANDS = [
     {"type": f"{DOMAIN}/graph/revisions"},
     {"type": f"{DOMAIN}/identity/list"},
     {"type": f"{DOMAIN}/backup/status"},
+    {"type": f"{DOMAIN}/cleanup/report"},
     {"type": f"{DOMAIN}/incidents/list"},
     {"type": f"{DOMAIN}/subscribe"},
 ]

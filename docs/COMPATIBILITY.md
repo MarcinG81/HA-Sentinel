@@ -5,7 +5,7 @@ end-to-end checks listed below passed on that line; it is not a promise for othe
 
 | Sentinel | Home Assistant | Python (from HA) | DB schema | Snapshot schema | API | Collector protocol |
 |---|---|---|---|---|---|---|
-| 0.1.0-dev | 2026.5.1 – 2026.10.x (qualified on 2026.5.1 and 2026.10.2) | 3.14 | 14 (reads 14 only) | 1 | 1 | — (R2) |
+| 0.2.0 | 2026.5.1 – 2026.10.x (qualified on 2026.5.1 and 2026.10.2) | 3.14 | 14 (reads 14 only) | 1 | 1 | — (R2) |
 
 ## Qualification evidence (2026-10-17)
 

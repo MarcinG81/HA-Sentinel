@@ -22,6 +22,27 @@ rights again, and the request is written to the audit log before and after.
 - If Home Assistant refuses (for example, automatic backups have no location set), the card
   tells you so.
 
+## Cleanup in Home Assistant
+
+Entities and devices that have been inactive for longer than the **cleanup window**
+(30 days by default, set in the options):
+
+| Reason | Meaning |
+|---|---|
+| unavailable / unknown state | The state has not changed for the whole window |
+| no longer provided by its integration | HA shows it as *restored*: the integration stopped providing it |
+| registered but has no state | An entry in the registry that nothing creates any more |
+| its integration is not loaded / was removed | The integration failed to start or no longer exists |
+| all its entities are inactive | A device whose every entity is in the list |
+
+Each row has **Open in Home Assistant**, where you decide whether to remove it.
+**This is only a list: Sentinel never removes anything from Home Assistant.** Disabled
+entities and entities that are `unknown` by nature (buttons, scenes, events…) are not listed.
+
+Sentinel's own data is cleaned automatically: objects removed from Home Assistant more than
+the window ago, together with the rule settings that stayed attached to them, are dropped by
+the hourly purge.
+
 ## Data
 
 - Sizes: database, observations, numeric aggregates, snapshots, audit log (with its budget).

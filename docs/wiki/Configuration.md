@@ -44,6 +44,7 @@ A switched-off module shows a "module disabled" card in its tab instead of an em
 |---|---|---|---|
 | Observation retention | 7 days | 1–30 | Raw observations; numeric samples then live on as aggregates |
 | Incident retention | 90 days | 7–365 | Resolved incidents and findings; active ones are never deleted |
+| Cleanup window | 30 days | 7–365 | Objects removed from HA longer ago are dropped from Sentinel's data; HA objects inactive longer are listed in *Settings → Cleanup in Home Assistant* (Sentinel never deletes them) |
 | Storage budget | 1024 MiB | 256–16384 | Warning at 80 %, restrictions at 95 % (DOC010) |
 
 See [[Data and Privacy]] for every data class and its limit.

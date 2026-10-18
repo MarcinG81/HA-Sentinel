@@ -289,3 +289,11 @@ AI (17.2, T22), collector N2 i jego API (13.4, 15.4), adaptery routerów, skan C
 - Snapshoty: maks. 50 na zasób (egzekwowane przy zapisie i dodatkowo w purge), najnowszy zawsze zostaje.
 - Audyt: budżet 64 MiB liczony co 5 min i po purge; przekroczenie blokuje mutacje (`storage_unavailable/audit_budget`) poza usuwaniem danych i wznowieniem modułu. Karta danych pokazuje rozmiary klas i stan budżetu.
 - Testy z zamrożonym zegarem: writer budzi się w czasie rzeczywistym, więc po zmianie stanu test jawnie opróżnia kolejkę przed przeskokami czasu.
+
+## Po wydaniu 0.1.0 — uwagi z pierwszej instalacji (2026-10-18)
+
+- **Wyłączanie reguły z incydentu:** karta „Reguły, które wywołały ten incydent” — wyłączenie dla obiektów incydentu (jedna zbiorcza, audytowana zmiana `rules/set_many`) albo dla całego urządzenia (`device:<id>`, obejmuje też encje dodane później; własne ustawienie encji wygrywa). DOC005 i DOC007 tylko per encja. DOC006 (podmiot = zasób YAML) nie ma wyłączenia per obiekt.
+- **Okno sprzątania** (opcja, domyślnie 30 dni, 7–365):
+  - dane Sentinel: tombstone'y encji i urządzeń starsze niż okno usuwane w godzinnym purge razem z przypiętymi ustawieniami (nadpisania, źródła liczbowe, wagi, sugestie tożsamości); uzgadnianie rejestrów oznacza też usunięte urządzenia;
+  - raport `cleanup/report` + karta w Ustawieniach: encje niedostępne / o nieznanym stanie dłużej niż okno, osierocone (`restored`), bez stanu, z niezaładowaną lub usuniętą integracją, urządzenia ze wszystkimi encjami nieaktywnymi — z linkiem do strony HA. **Tylko raport**: specyfikacja wyklucza samoczynne usuwanie obiektów HA i masową naprawę encji. Pomijane: encje wyłączone i bezstanowe z natury.
+- Znaleziony błąd: przy wyładowaniu timery (Doctor, purge) mogły uruchomić pracę na już zamkniętej bazie. Zatrzymywanie blokuje nową pracę i czeka na rozpoczęte zadania przed zamknięciem bazy.

@@ -26,9 +26,9 @@ period ends. Their date is Sentinel's start time and means "at least since".
 
 - **The device is really broken:** keep the incident; it closes by itself 30 s after the
   device is back.
-- **The device is normally off** (dryer, washing machine, watch, sleeping sensor): Doctor →
-  *Rules per object* → turn DOC001 off for its entities or set a long threshold, or use
-  *Maintenance* while it is unplugged. See [[Rules per Object]].
+- **The device is normally off** (dryer, washing machine, watch, sleeping sensor): open the
+  incident and use **Turn off for the whole device** in *Rules that raised this incident*, or
+  set a long threshold in *Rules per object*. See [[Rules per Object]].
 - **You already know and just don't want the alarm now:** *Mute* the incident.
 
 "Common failure: X" means several entities of the same device or integration *X* are

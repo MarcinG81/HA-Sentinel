@@ -25,6 +25,7 @@ import { hypothesisLine, incidentTitle, renderCounterEvidence, renderHypotheses 
 import { renderDataCard, renderExportCard } from "./views_data.ts";
 import { renderMaintenanceCard } from "./views_maintenance.ts";
 import { renderBackupCard } from "./views_backup.ts";
+import { renderCleanupCard } from "./views_cleanup.ts";
 import { renderHealthComponents } from "./views_health.ts";
 import { renderIdentityCard } from "./views_identity.ts";
 import { renderIncidentRules } from "./views_incident_rules.ts";
@@ -863,6 +864,7 @@ class SentinelPanel extends HTMLElement {
   private async renderSettingsView(): Promise<HTMLElement> {
     return h("div", { class: "stack" }, this.renderSettings(),
       await renderBackupCard(this.ctx, (path, label) => this.settingsLink(path, label)),
+      await renderCleanupCard(this.ctx, (path, label) => this.settingsLink(path, label)),
       await renderDataCard(this.ctx));
   }
 

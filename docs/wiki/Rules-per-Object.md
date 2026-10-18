@@ -9,7 +9,7 @@ versioned with Sentinel's configuration.
 
 ## Overrides
 
-Pick an entity, a rule, then:
+Pick an entity **or a whole device**, a rule, then:
 
 - **Turn the rule off** for this entity. An open finding is closed with the reason *rule
   turned off for this object*.
@@ -24,8 +24,15 @@ Pick an entity, a rule, then:
 
 Empty fields keep the global value. Timers already running keep their old threshold.
 
-**Typical use:** a tumble dryer or a watch that is regularly offline: turn DOC001 off for its
-entities, or give it a long threshold such as 3600 s.
+**Device-wide settings** apply to every entity of the device, including entities added later.
+An entity's own setting wins over the device's. Heartbeat (DOC005) and expected runs (DOC007)
+can only be set per entity.
+
+**From an incident:** the incident card *Rules that raised this incident* switches a rule off
+for its objects or their device in one click (see [[Doctor|Panel Doctor]]).
+
+**Typical use:** a tumble dryer or a watch that is regularly offline: turn DOC001 off for the
+whole device, or give it a long threshold such as 3600 s.
 
 ## Heartbeat contract (DOC005)
 

@@ -140,10 +140,12 @@ def find_export(conn: sqlite3.Connection, export_id: str) -> dict[str, Any] | No
 
 
 def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int,
-                incidents_days: int, snapshot_days: int = 30, audit_days: int = 180) -> dict:
+                incidents_days: int, snapshot_days: int = 30, audit_days: int = 180,
+                cleanup_days: int = 30) -> dict:
     """Delete at most PURGE_BATCH rows per class; call repeatedly until it returns zeros."""
     counts: dict[str, int] = {}
     with _tx(conn):
+        counts.update(_purge_tombstones(conn, now_us - cleanup_days * DAY_US))
         cutoff = now_us - observations_days * DAY_US
         # Samples leaving the retention survive as minute aggregates (spec 7.3).
         conn.execute("CREATE TEMP TABLE IF NOT EXISTS purge_ids(id TEXT PRIMARY KEY)")
@@ -222,6 +224,35 @@ def purge_batch(conn: sqlite3.Connection, now_us: int, *, observations_days: int
             (now_us - audit_days * DAY_US, PURGE_BATCH),
         ).rowcount
     return counts
+
+
+def _purge_tombstones(conn: sqlite3.Connection, cutoff_us: int) -> dict[str, int]:
+    """Entities and devices removed from HA before the cleanup window, with the settings
+    that stayed attached to them (spec 27.1: an override stays with its tombstone until
+    retention). Incidents keep their history; they just lose the object's label."""
+    ents = [r[0] for r in conn.execute(
+        "SELECT uid FROM entities WHERE deleted_at_us IS NOT NULL AND deleted_at_us < ? "
+        "LIMIT ?", (cutoff_us, PURGE_BATCH))]
+    for chunk in _chunks(ents, 500):
+        marks = ",".join("?" * len(chunk))
+        for sql in (f"DELETE FROM entity_aliases WHERE entity_uid IN ({marks})",
+                    f"DELETE FROM entity_devices WHERE entity_uid IN ({marks})",
+                    f"DELETE FROM rule_overrides WHERE subject_uid IN ({marks})",
+                    f"DELETE FROM numeric_sources WHERE subject_uid IN ({marks})",
+                    f"DELETE FROM unit_weights WHERE unit_uid IN ({marks})",
+                    f"DELETE FROM entities WHERE uid IN ({marks})"):
+            conn.execute(sql, chunk)  # noqa: S608 - placeholders only
+        conn.execute(f"DELETE FROM identity_suggestions WHERE old_uid IN ({marks}) "  # noqa: S608
+                     f"OR new_uid IN ({marks})", chunk + chunk)
+    devs = conn.execute(
+        "SELECT uid, ha_device_id FROM devices WHERE deleted_at_us IS NOT NULL AND "
+        "deleted_at_us < ? LIMIT ?", (cutoff_us, PURGE_BATCH)).fetchall()
+    for uid, ha_id in devs:
+        conn.execute("DELETE FROM entity_devices WHERE device_uid=?", (uid,))
+        conn.execute("DELETE FROM rule_overrides WHERE subject_uid=?", (f"device:{ha_id}",))
+        conn.execute("DELETE FROM unit_weights WHERE unit_uid=?", (uid,))
+        conn.execute("DELETE FROM devices WHERE uid=?", (uid,))
+    return {"entities": len(ents), "devices": len(devs)}
 
 
 def _aggregate(conn: sqlite3.Connection, select_sql: str, granularity: str) -> None:

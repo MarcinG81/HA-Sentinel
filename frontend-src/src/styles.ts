@@ -161,6 +161,7 @@ table.features th, table.features td { width: auto; text-align: center; padding:
 table.metrics th, table.metrics td { width: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 table.metrics td { text-align: right; }
 .scroll { overflow-x: auto; }
+table.cleanup td, table.cleanup th { vertical-align: top; }
 .scroll:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 fieldset.plain { border: 0; padding: 0; margin: 0; }
 ul.plain { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; }

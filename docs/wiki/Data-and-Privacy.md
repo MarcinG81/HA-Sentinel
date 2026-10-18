@@ -48,6 +48,7 @@ Only what the enabled rules need:
 | Audit log | 180 days | 64 MiB; when full, new changes are refused until purge frees space |
 | Exports and job results | 24 h | 20 MiB per export |
 | Graph history | last 200 revisions | |
+| Removed entities and devices (tombstones) and their settings | cleanup window, 30 days (7–365) | |
 | Everything | | Storage budget (1024 MiB default): DOC010 warning at 80 %, restrictions at 95 % |
 
 Sentinel never deletes Home Assistant files to free space.

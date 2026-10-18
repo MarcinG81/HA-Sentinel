@@ -36,6 +36,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 
+from .adapters.compat import devices as compat_devices
 from .adapters.evidence import EvidenceCollector
 from .adapters.ha_states import (
     SOURCE_ID,
@@ -46,6 +47,7 @@ from .adapters.ha_states import (
 )
 from .backup_services import BackupService
 from .change_services import ChangeService
+from .cleanup_services import CleanupService
 from .config_services import ConfigServices
 from .const import (
     COVERAGE_WINDOW_S,
@@ -164,6 +166,7 @@ class SentinelRuntime:
         self.unit_weights: dict[str, int] = {}  # health unit uid -> admin weight 2..5
         self.identity = IdentityService(self)
         self.backup = BackupService(self)
+        self.cleanup = CleanupService(self)
         self.registry_synced_us: int | None = None
         self.audit_blocked = False  # audit log over budget: no new mutations (spec 7.3)
         # entity_id -> explicit numeric sources (manual battery mapping, signal scales).
@@ -211,6 +214,7 @@ class SentinelRuntime:
         self._writer_resume = asyncio.Event()
         self._supervisor = Supervisor()
         self._stopping = False
+        self._tasks: set[asyncio.Task] = set()  # in-flight database work started by timers
         # DOC005 contracts: entity_id -> uid, last emitted heartbeat, state_reported tracker.
         self._heartbeat_aliases: dict[str, str] = {}
         self._heartbeat_last_us: dict[str, int] = {}
@@ -351,6 +355,9 @@ class SentinelRuntime:
             await self.data.async_stop()
         if self.config is not None:
             await self.config.async_stop()
+        if pending := [t for t in self._tasks if not t.done()]:
+            # Database work started before the stop must finish before the file closes.
+            await asyncio.wait(pending, timeout=UNLOAD_FLUSH_TIMEOUT_S)
         await self.db.async_close()
 
     async def _start_config_services(self) -> None:
@@ -525,6 +532,11 @@ class SentinelRuntime:
                     self._availability.pop(ent.current_alias, None)
         for entity_id in present.values():
             self._resolve_uid(entity_id)  # renames and device moves
+        devices_present = {d.id for d in compat_devices(dr.async_get(self.hass))}
+        for dev in self.inventory.devices():
+            if dev.ha_device_id not in devices_present and dev.deleted_at_us is None:
+                if change := self.inventory.remove_device(dev.ha_device_id, now):
+                    self._pending_inventory.append(change)
         self.registry_synced_us = now
         changed = len(self._pending_inventory) - before
         if changed:
@@ -629,6 +641,13 @@ class SentinelRuntime:
 
     async def commit_findings(self, findings: list[Finding]) -> None:
         await self._commit_findings(findings)
+
+    async def reload_object_settings(self) -> None:
+        """Per-object settings changed underneath (purge, identity move): reload them."""
+        await self.rules._apply()  # noqa: SLF001 - same integration
+        await self.numeric.async_load()
+        self.refresh_numeric_tracking()
+        await self.async_load_weights()
 
     async def config_changed(self, actor: str) -> None:
         """Rule settings changed: new type S snapshot (spec 10.1)."""
@@ -738,7 +757,7 @@ class SentinelRuntime:
         return len(drained.observations) >= WRITER_BATCH_SIZE
 
     async def _commit_findings(self, findings: list[Finding]) -> None:
-        if not findings:
+        if not findings or (self._stopping and not self.db.is_open):
             return
         now = self.clock.now_us()
         if self.storage_writable:
@@ -752,7 +771,7 @@ class SentinelRuntime:
 
     async def async_correlate(self) -> None:
         """Derive incidents and hypotheses from all active findings (spec 9)."""
-        if not self.storage_writable:
+        if not self.storage_writable or self._stopping:
             return
         async with self._correlate_lock:
             t_start = time.perf_counter()
@@ -830,20 +849,24 @@ class SentinelRuntime:
     def _doctor_fire(self, _now: datetime) -> None:
         self._doctor_timer = None
         self._doctor_deadline = None
+        if self._stopping:
+            return  # unloading: the database may already be closed
         findings = self.doctor.tick(self.clock.now_us())
         self._reschedule_doctor()
         if findings:
             # Tracked (not background): findings and incidents must be committed before
             # the entry unloads, and HA waits for tracked tasks.
-            self.entry.async_create_task(
+            self._track(self.entry.async_create_task(
                 self.hass, self._commit_findings(findings), f"{DOMAIN}_findings"
-            )
+            ))
 
     # --- Read model -----------------------------------------------------------------
 
     @callback
     def _publish_tick(self, _now: datetime) -> None:
-        self.entry.async_create_task(self.hass, self._periodic(), f"{DOMAIN}_periodic")
+        if not self._stopping:
+            self._track(self.entry.async_create_task(self.hass, self._periodic(),
+                                                     f"{DOMAIN}_periodic"))
 
     def _update_degradation(self, storage_level: int) -> None:
         """Levels from spec 21.2 with hysteresis: return only after 5 min below 50 %."""
@@ -1037,6 +1060,14 @@ class SentinelRuntime:
             })
         return {"score": h.score, "score_partial": float(h.score_exact)
                 if h.score_exact is not None else None, "units": out}
+
+    def _track(self, task: asyncio.Task) -> None:
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @property
+    def stopping(self) -> bool:
+        return self._stopping
 
     @property
     def degraded(self) -> bool:

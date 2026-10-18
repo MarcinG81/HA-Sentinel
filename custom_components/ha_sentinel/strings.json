@@ -47,7 +47,11 @@
             "data": {
               "retention_observations_days": "Observation retention (days)",
               "retention_incidents_days": "Incident retention (days)",
+              "cleanup_window_days": "Cleanup window (days)",
               "storage_max_total_mib": "Storage budget (MiB)"
+            },
+            "data_description": {
+              "cleanup_window_days": "Objects removed from Home Assistant longer ago are dropped from Sentinel's data; entities and devices inactive longer are listed for cleanup in the panel. Sentinel never deletes anything in Home Assistant."
             }
           },
           "managed": {

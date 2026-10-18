@@ -117,6 +117,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_identity_decide,
         ws_backup_status,
         ws_backup_create,
+        ws_cleanup_report,
         ws_modules_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -1423,6 +1424,16 @@ async def ws_backup_create(hass, connection, msg, runtime) -> None:
     if not runtime.storage_writable:
         raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "audit cannot be written")
     connection.send_result(msg["id"], await runtime.backup.create(connection.user.id))
+
+
+@websocket_api.websocket_command(_schema("cleanup/report"))
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.QUERY)
+async def ws_cleanup_report(hass, connection, msg, runtime) -> None:
+    """HA objects inactive longer than the cleanup window. A report only: Sentinel never
+    removes anything from Home Assistant."""
+    connection.send_result(msg["id"], runtime.cleanup.report())
 
 
 @websocket_api.websocket_command(

@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     DEFAULT_OPTIONS,
     DOMAIN,
+    OPT_CLEANUP_WINDOW_DAYS,
     OPT_DOCTOR_STARTUP_GRACE_S,
     OPT_DOCTOR_UNAVAILABLE_S,
     OPT_INGESTION_ALLOWED_DOMAINS,
@@ -84,7 +85,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     "ingestion": (OPT_INGESTION_ALLOWED_DOMAINS, OPT_INGESTION_NUMERIC_SAMPLING),
     "doctor": (OPT_DOCTOR_UNAVAILABLE_S, OPT_DOCTOR_STARTUP_GRACE_S, OPT_NOTIFICATIONS_ENABLED),
     "storage": (OPT_RETENTION_OBSERVATIONS_DAYS, OPT_RETENTION_INCIDENTS_DAYS,
-                OPT_STORAGE_MAX_TOTAL_MIB),
+                OPT_CLEANUP_WINDOW_DAYS, OPT_STORAGE_MAX_TOTAL_MIB),
     "managed": (OPT_MANAGED_WRITE_ENABLED, OPT_MANAGED_DIR, OPT_MANAGED_RELOAD),
     "network": (OPT_NETWORK_ACTIVE_PROBES, OPT_NETWORK_INTERVAL_S, OPT_NETWORK_ALLOWLIST),
 }
@@ -127,6 +128,7 @@ class SentinelOptionsFlow(OptionsFlow):
             OPT_NOTIFICATIONS_ENABLED: bool,
             OPT_RETENTION_OBSERVATIONS_DAYS: _int(1, 30),
             OPT_RETENTION_INCIDENTS_DAYS: _int(7, 365),
+            OPT_CLEANUP_WINDOW_DAYS: _int(7, 365),
             OPT_STORAGE_MAX_TOTAL_MIB: _int(256, 16384),
             OPT_MANAGED_WRITE_ENABLED: bool,
             # Plain str for the same reason as the allowlist: validated in the step.

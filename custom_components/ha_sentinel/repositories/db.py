@@ -162,6 +162,10 @@ class DatabaseWorker:
         return self._path.name if self._path is not None else ":memory:"
 
     @property
+    def is_open(self) -> bool:
+        return self._conn is not None
+
+    @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
             raise RuntimeError("database is not open")
