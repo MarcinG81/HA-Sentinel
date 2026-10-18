@@ -3,7 +3,18 @@
 
 import type { Ctx } from "./ctx.ts";
 import { h, uuid4 } from "./dom.ts";
-import type { IncidentDetail, WsError } from "./types.ts";
+import type { IncidentDetail, Subject, WsError } from "./types.ts";
+
+const SHOW_OPEN = 5; // longer lists start collapsed
+
+function objectList(t: (k: string) => string, subjects: Subject[]): HTMLElement {
+  const items = h("ul", { class: "plain objects" }, subjects.map((x) => h("li", {},
+    x.name ?? x.entity_id ?? x.uid ?? "—",
+    x.entity_id && x.name ? h("span", { class: "muted small-text" }, " · ", h("code", {}, x.entity_id)) : null,
+    x.deleted ? h("span", { class: "muted small-text" }, ` · ${t("rules.subject_gone")}`) : null)));
+  if (subjects.length <= SHOW_OPEN) return items;
+  return h("details", {}, h("summary", {}, t("irules.show_objects").replace("{n}", String(subjects.length))), items);
+}
 
 export function renderIncidentRules(ctx: Ctx, inc: IncidentDetail, done: () => void): HTMLElement | null {
   const { t } = ctx;
@@ -34,6 +45,7 @@ export function renderIncidentRules(ctx: Ctx, inc: IncidentDetail, done: () => v
         h("div", { class: "row spread" }, h("span", { class: "title" }, name),
           h("span", { class: "badge status" }, t("irules.objects").replace("{n}", String(n)))),
         h("div", { class: "sub" }, t(`irules.why.${r.rule_id}`)),
+        r.subjects?.length ? objectList(t, r.subjects) : null,
         r.per_entity_only ? h("div", { class: "sub" }, t("irules.per_entity")) : null,
         h("div", { class: "row" },
           h("button", {

@@ -67,6 +67,8 @@ async def test_disable_rule_for_device_from_incident(hass, hass_ws_client, freez
     rules = detail["result"]["rules"]
     assert [r["rule_id"] for r in rules] == ["DOC001"]
     assert len(rules[0]["subject_uids"]) == 3
+    assert [x["entity_id"] for x in rules[0]["subjects"]] == [
+        "sensor.dryer_0", "sensor.dryer_1", "sensor.dryer_2"]
     assert rules[0]["device"] == {"uid": f"device:{dev.id}", "name": "Tumble dryer"}
 
     res = await _call(client, type=f"{DOMAIN}/rules/set", rule_id="DOC001",

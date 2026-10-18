@@ -31,7 +31,8 @@ Additional banners:
 - **Configuration changed shortly before.** An automation on the dependency path changed in
   the 30 minutes before the start. This is listed separately and never raises the ranking.
 
-**Rules that raised this incident.** Each rule with its affected objects and why it fired.
+**Rules that raised this incident.** Each rule with why it fired and the list of affected
+objects (name and entity ID; longer lists are collapsed under *Show the objects*).
 If this is normal for these objects (a dryer that is switched off, a watch out of range),
 switch the rule off right here:
 - **Turn off for these N objects:** one change for all objects of the incident.

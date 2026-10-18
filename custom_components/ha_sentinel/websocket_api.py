@@ -340,7 +340,10 @@ def _incident_rules(hass, runtime, findings: list[dict]) -> list[dict]:
             if dev is not None:
                 device = {"uid": key, "name": dev.name_by_user or dev.name}
         out.append({"rule_id": rule_id, "subject_uids": subjects, "device": device,
-                    "per_entity_only": rule_id in PER_ENTITY_RULES})
+                    "per_entity_only": rule_id in PER_ENTITY_RULES,
+                    # Which objects, by name: the admin must see them before turning off.
+                    "subjects": sorted((runtime.subject_label(uid) for uid in subjects),
+                                       key=lambda x: (x["name"] or x["entity_id"] or ""))})
     return out
 
 

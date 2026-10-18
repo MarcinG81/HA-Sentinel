@@ -165,6 +165,8 @@ table.cleanup td, table.cleanup th { vertical-align: top; }
 .scroll:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 fieldset.plain { border: 0; padding: 0; margin: 0; }
 ul.plain { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; }
+ul.objects { margin: 6px 0 8px; }
+details > summary { cursor: pointer; margin: 6px 0; }
 ul.plain li.row { justify-content: space-between; flex-wrap: wrap; }
 fieldset.plain legend { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 4px; }
 button.danger { background: var(--s-danger-bg); border-color: var(--s-danger-bg); }
