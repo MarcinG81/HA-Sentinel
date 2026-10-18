@@ -30,15 +30,29 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Newest qualified line (unpinned harness = current HA release).
+          - ha: current
+            harness: pytest-homeassistant-custom-component
+            frontend: home-assistant-frontend
+          # Lowest supported version (hacs.json "homeassistant"); keep in sync.
+          - ha: "2026.5.1"
+            harness: pytest-homeassistant-custom-component==0.13.330
+            frontend: home-assistant-frontend==20260429.3
+    name: tests (HA ${{ matrix.ha }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install pytest-homeassistant-custom-component ruff home-assistant-frontend pytest-cov
+      - run: pip install "${{ matrix.harness }}" "${{ matrix.frontend }}" ruff pytest-cov
       - run: ruff check .
       - run: pytest -q --cov=custom_components/ha_sentinel --cov-branch --cov-report=term --cov-fail-under=90
       - name: Dependency audit of the frontend toolchain
+        if: matrix.ha == 'current'
         working-directory: frontend-src
         run: npm ci && npm audit --audit-level=high
 

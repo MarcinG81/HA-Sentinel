@@ -5,7 +5,7 @@ end-to-end checks listed below passed on that line; it is not a promise for othe
 
 | Sentinel | Home Assistant | Python (from HA) | DB schema | Snapshot schema | API | Collector protocol |
 |---|---|---|---|---|---|---|
-| 0.1.0-dev | 2026.10.x (qualified on 2026.10.2) | 3.14 | 4 (reads 4 only) | 1 | 1 | — (R2) |
+| 0.1.0-dev | 2026.5.1 – 2026.10.x (qualified on 2026.5.1 and 2026.10.2) | 3.14 | 14 (reads 14 only) | 1 | 1 | — (R2) |
 
 ## Qualification evidence (2026-10-17)
 
@@ -15,6 +15,20 @@ end-to-end checks listed below passed on that line; it is not a promise for othe
 - Manual on a live HA 2026.10.2 instance: install, config flow, sidebar panel, all panel
   tabs, managed file restore with reload, export download, network probes, restart with
   schema migration v2→v3, no "Detected blocking call" warnings.
+
+## Qualification on 2026.5.1 (2026-10-18)
+
+- Automated: the full test suite on `homeassistant==2026.5.1`
+  (`pytest-homeassistant-custom-component==0.13.330`, frontend `20260429.3`); CI runs it
+  next to the current release.
+- Manual on a fresh HA 2026.5.1 instance: onboarding, config flow, options form with
+  sections, every API command used by the panel, panel registration and bundle download.
+- Differences handled in `adapters/compat.py`: device registry iteration (ids before
+  2026.10, entries after) and `DeviceEntry.config_entry_id` (2026.10) versus
+  `config_entries` (earlier). The options form validates the managed directory in the
+  step, because the 2026.5 form serializer cannot convert `vol.Match` inside a section.
+- HA itself refuses to start on a configuration written by a newer HA (storage files
+  are not downgradable); that is HA behaviour, not Sentinel's.
 
 ## Class A adapters (feature-flagged by capability checks)
 

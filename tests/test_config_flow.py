@@ -48,6 +48,11 @@ async def test_options_flow_form_serialises_and_validates(hass, hass_client):
     assert "ingestion_allowed_domains" in fields["ingestion"]
 
     data = {name: {k: DEFAULT_OPTIONS[k] for k in keys} for name, keys in fields.items()}
+    data["managed"]["managed_dir"] = "../escape"
+    resp = await client.post(f"/api/config/config_entries/options/flow/{flow['flow_id']}",
+                             json=data)
+    assert (await resp.json())["errors"] == {"base": "invalid_managed_dir"}
+    data["managed"]["managed_dir"] = DEFAULT_OPTIONS["managed_dir"]
     data["network"]["network_allowlist"] = "not-a-cidr"
     resp = await client.post(f"/api/config/config_entries/options/flow/{flow['flow_id']}",
                              json=data)

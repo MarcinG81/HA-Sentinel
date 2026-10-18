@@ -14,6 +14,8 @@ from homeassistant.helpers import entity_registry as er
 from ..const import DOMAIN
 from ..core.inventory import Inventory
 from ..modules.dependency_mapper.graph import DeviceInfo, EntityInfo, EntryInfo
+from .compat import belongs_to, device_entry_ids
+from .compat import devices as compat_devices
 from .ha_states import is_observed
 
 
@@ -76,9 +78,8 @@ def async_snapshot(hass: HomeAssistant, inventory: Inventory) -> RegistrySnapsho
     # Sentinel's own device is not part of the home being monitored.
     own = {e.entry_id for e in hass.config_entries.async_entries(DOMAIN)}
     devices = [
-        DeviceInfo(d.id, d.name_by_user or d.name, d.area_id,
-                   (d.config_entry_id,) if d.config_entry_id else ())
-        for d in dev_reg.devices if d.config_entry_id not in own
+        DeviceInfo(d.id, d.name_by_user or d.name, d.area_id, device_entry_ids(d))
+        for d in compat_devices(dev_reg) if not belongs_to(d, own)
     ]
     entries = [EntryInfo(e.entry_id, e.domain, e.title)
                for e in hass.config_entries.async_entries()]

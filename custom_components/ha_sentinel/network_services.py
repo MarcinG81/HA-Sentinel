@@ -19,6 +19,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_call_later
 
+from .adapters.compat import devices as compat_devices
 from .adapters.probe import probe
 from .const import (
     DEFAULT_OPTIONS,
@@ -362,7 +363,7 @@ class NetworkService:
         MAC addresses are shown truncated; IP is never a durable identity (spec 13.2).
         """
         out = []
-        for dev in dr.async_get(self.hass).devices:  # iterating yields entries (HA 2026.10+)
+        for dev in compat_devices(dr.async_get(self.hass)):
             macs = [v for t, v in dev.connections if t == dr.CONNECTION_NETWORK_MAC]
             url = dev.configuration_url
             if not macs and not url:

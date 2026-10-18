@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
+from .adapters.compat import devices as compat_devices
 from .core.clock import us_to_rfc3339
 from .core.errors import ErrorCode, SentinelError
 from .core.models import Availability, new_uuid
@@ -56,7 +57,7 @@ class HostService:
 
     def _devices(self) -> list[DeviceNet]:
         out = []
-        for dev in dr.async_get(self.hass).devices:  # iterating yields entries (HA 2026.10+)
+        for dev in compat_devices(dr.async_get(self.hass)):
             macs = tuple(v for t, v in dev.connections if t == dr.CONNECTION_NETWORK_MAC)
             host = url_host(dev.configuration_url)
             if macs or host:

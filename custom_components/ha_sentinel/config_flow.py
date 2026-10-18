@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -44,6 +45,8 @@ from .const import (
     PRIVACY_EXCLUDED_DOMAINS,
 )
 from .core.models import new_uuid
+
+_MANAGED_DIR = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
 
 
 def _allowlist_ok(value: str) -> bool:
@@ -99,9 +102,12 @@ class SentinelOptionsFlow(OptionsFlow):
             if isinstance(group, dict):
                 flat.update(group)
         if user_input is not None:
-            if _allowlist_ok(flat.get(OPT_NETWORK_ALLOWLIST, "")):
+            if not _MANAGED_DIR.match(str(flat.get(OPT_MANAGED_DIR, ""))):
+                errors["base"] = "invalid_managed_dir"
+            elif not _allowlist_ok(flat.get(OPT_NETWORK_ALLOWLIST, "")):
+                errors["base"] = "invalid_cidr"
+            else:
                 return self.async_create_entry(data={**self.config_entry.options, **flat})
-            errors["base"] = "invalid_cidr"
         opts = {**DEFAULT_OPTIONS, **self.config_entry.options, **flat}
         # Domains present now, minus privacy exclusions (they always win, spec 27.1).
         domains = sorted(
@@ -123,7 +129,8 @@ class SentinelOptionsFlow(OptionsFlow):
             OPT_RETENTION_INCIDENTS_DAYS: _int(7, 365),
             OPT_STORAGE_MAX_TOTAL_MIB: _int(256, 16384),
             OPT_MANAGED_WRITE_ENABLED: bool,
-            OPT_MANAGED_DIR: vol.All(str, vol.Match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")),
+            # Plain str for the same reason as the allowlist: validated in the step.
+            OPT_MANAGED_DIR: str,
             OPT_MANAGED_RELOAD: bool,
             OPT_NETWORK_ACTIVE_PROBES: bool,
             OPT_NETWORK_INTERVAL_S: _int(60, 3600),

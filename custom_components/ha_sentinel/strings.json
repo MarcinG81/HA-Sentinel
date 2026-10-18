@@ -70,7 +70,8 @@
       }
     },
     "error": {
-      "invalid_cidr": "Allowed address ranges: enter one or more CIDR ranges separated by commas, e.g. 192.168.1.0/24."
+      "invalid_cidr": "Allowed address ranges: enter one or more CIDR ranges separated by commas, e.g. 192.168.1.0/24.",
+      "invalid_managed_dir": "Managed files directory: a single folder name inside the config directory (letters, digits, _ . -)."
     }
   },
   "entity": {
