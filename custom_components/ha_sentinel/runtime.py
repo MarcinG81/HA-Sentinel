@@ -176,6 +176,7 @@ class SentinelRuntime:
             domain_of=lambda uid: (e.domain if (e := self.inventory.get(uid)) else None),
             tz_name=str(hass.config.time_zone),
             automation_enabled=self._automation_enabled,
+            device_of=self.inventory.device_key,
         )
         self.capabilities: dict[str, Capability] = {}
         self.config: ConfigServices | None = None

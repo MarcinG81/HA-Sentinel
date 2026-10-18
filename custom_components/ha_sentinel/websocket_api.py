@@ -20,6 +20,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import API_VERSION, DOMAIN
@@ -32,6 +33,7 @@ from .modules.autopilot.draft import DraftSpec
 from .modules.doctor.overrides import PARAM_RANGES
 from .repositories import history, jobs
 from .repositories import repository as repo
+from .rules_services import PER_ENTITY_RULES
 
 _LOGGER = logging.getLogger(__name__)
 _REGISTERED = f"{DOMAIN}_ws_registered"
@@ -99,6 +101,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         ws_rules_list,
         ws_rules_set,
         ws_rules_delete,
+        ws_rules_set_many,
         ws_numeric_list,
         ws_numeric_set,
         ws_numeric_delete,
@@ -317,6 +320,29 @@ async def ws_incidents_list(hass, connection, msg, runtime) -> None:
     )
 
 
+def _incident_rules(hass, runtime, findings: list[dict]) -> list[dict]:
+    """Rules that raised the incident's active findings, with the scopes they can be
+    switched off for: the affected objects, or their device when they share one."""
+    reg = dr.async_get(hass)
+    by_rule: dict[str, list[str]] = {}
+    for f in findings:
+        if f["status"] == "active" and f["rule_id"] in PARAM_RANGES:
+            by_rule.setdefault(f["rule_id"], []).append(f["subject_uid"])
+    out = []
+    for rule_id, subjects in sorted(by_rule.items()):
+        subjects = sorted(set(subjects))
+        devices = {runtime.inventory.device_key(uid) for uid in subjects}
+        device = None
+        if len(devices) == 1 and None not in devices and rule_id not in PER_ENTITY_RULES:
+            key = devices.pop()
+            dev = reg.async_get(key.removeprefix("device:"))
+            if dev is not None:
+                device = {"uid": key, "name": dev.name_by_user or dev.name}
+        out.append({"rule_id": rule_id, "subject_uids": subjects, "device": device,
+                    "per_entity_only": rule_id in PER_ENTITY_RULES})
+    return out
+
+
 @websocket_api.websocket_command(
     _schema("incidents/get") | {vol.Required("incident_id"): _uuid}
 )
@@ -362,6 +388,7 @@ async def ws_incidents_get(hass, connection, msg, runtime) -> None:
         {**c, "subject": runtime.subject_label(c.get("subject_uid"))}
         for c in summary.get("change_hypotheses", [])]
     out["recurrence_of"] = summary.get("recurrence_of")
+    out["rules"] = _incident_rules(hass, runtime, row["findings"])
     out["counter_evidence"] = [
         {**c, "candidate_uid": h["candidate_uid"]}
         for h in out["hypotheses"] for c in h.get("counter_evidence", [])
@@ -1232,6 +1259,30 @@ async def ws_rules_set(hass, connection, msg, runtime) -> None:
                                      enabled=msg["enabled"], params=msg["params"],
                                      actor=connection.user.id)
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    _schema("rules/set_many")
+    | {
+        vol.Required("rule_id"): vol.In(list(PARAM_RANGES)),
+        vol.Required("subject_uids"): vol.All([vol.All(str, vol.Length(min=1, max=300))],
+                                              vol.Length(min=1, max=200)),
+        vol.Required("enabled"): bool,
+        vol.Optional("params", default={}): vol.Schema({vol.All(str, vol.Length(max=40)): int}),
+        vol.Required("request_key"): _uuid,
+    }
+)
+@_require_admin
+@websocket_api.async_response
+@_guarded(RequestClass.MUTATION)
+async def ws_rules_set_many(hass, connection, msg, runtime) -> None:
+    """The same setting for many subjects in one audited change (e.g. from an incident)."""
+    if not runtime.storage_writable:
+        raise SentinelError(ErrorCode.STORAGE_UNAVAILABLE, "storage is read-only")
+    ids = await runtime.rules.set_many(rule_id=msg["rule_id"], subject_uids=msg["subject_uids"],
+                                       enabled=msg["enabled"], params=msg["params"],
+                                       actor=connection.user.id)
+    connection.send_result(msg["id"], {"override_ids": ids})
 
 
 @websocket_api.websocket_command(

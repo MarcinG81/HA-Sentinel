@@ -27,6 +27,7 @@ import { renderMaintenanceCard } from "./views_maintenance.ts";
 import { renderBackupCard } from "./views_backup.ts";
 import { renderHealthComponents } from "./views_health.ts";
 import { renderIdentityCard } from "./views_identity.ts";
+import { renderIncidentRules } from "./views_incident_rules.ts";
 import { renderNumericCard } from "./views_numeric.ts";
 import { renderRulesCard } from "./views_rules.ts";
 import { renderNetwork } from "./views_network.ts";
@@ -622,7 +623,8 @@ class SentinelPanel extends HTMLElement {
             h("div", { class: "title" }, c.label),
             h("div", { class: "sub" }, t("detail.change_line").replace("{m}", String(c.minutes_before)).replace("{runnable}", c.runnable).replace("{rel}", t(`rel.${c.relation}`)).replace("{subject}", this.subjectText(c.subject))))))))
       : null;
-    return h("div", { class: "stack" }, back, coverageBanner, recurrence, head, hypothesis, changes, counter, observation, rec);
+    const ruleCard = renderIncidentRules(this.ctx, inc, () => void this.render(true));
+    return h("div", { class: "stack" }, back, coverageBanner, recurrence, head, ruleCard, hypothesis, changes, counter, observation, rec);
   }
 
   private evidenceRow(e: Evidence): HTMLElement {

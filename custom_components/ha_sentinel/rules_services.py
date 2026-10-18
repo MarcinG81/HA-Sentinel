@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.helpers import device_registry as dr
+
 from .core.errors import ErrorCode, SentinelError
 from .core.models import new_uuid
 from .modules.doctor.overrides import RuleOverride, validate
@@ -20,6 +22,9 @@ if TYPE_CHECKING:
     from .runtime import SentinelRuntime
 
 MAX_OVERRIDES = 2000
+MAX_BULK = 200
+DEVICE_PREFIX = "device:"
+PER_ENTITY_RULES = frozenset({"DOC005", "DOC007"})
 
 
 def _row_to_override(row: Any) -> RuleOverride:
@@ -44,9 +49,19 @@ class RuleService:
         self._updated = {r["id"]: r["updated_us"] for r in rows}
 
     def override_api(self, o: RuleOverride) -> dict[str, Any]:
+        if o.subject_uid.startswith(DEVICE_PREFIX):
+            dev = dr.async_get(self.rt.hass).async_get(o.subject_uid.removeprefix(DEVICE_PREFIX))
+            return {
+                "id": o.id, "rule_id": o.rule_id, "subject_uid": o.subject_uid,
+                "subject_kind": "device",
+                "subject_label": (dev.name_by_user or dev.name) if dev else None,
+                "subject_deleted": dev is None, "subject_persistent": True,
+                "enabled": o.enabled, "params": o.params, "policy_revision": o.policy_revision,
+            }
         ent = self.rt.inventory.get(o.subject_uid)
         return {
             "id": o.id, "rule_id": o.rule_id, "subject_uid": o.subject_uid,
+            "subject_kind": "entity",
             "subject_label": ent.current_alias if ent else None,
             "subject_deleted": ent is None or ent.deleted_at_us is not None,
             # Without a registry entry the identity lasts one boot (spec 6.1).
@@ -54,44 +69,75 @@ class RuleService:
             "enabled": o.enabled, "params": o.params, "policy_revision": o.policy_revision,
         }
 
-    async def set(self, *, rule_id: str, subject_uid: str, enabled: bool,
-                  params: dict[str, Any], actor: str) -> dict[str, Any]:
-        clean = validate(rule_id, enabled, params)
+    def _check_subject(self, rule_id: str, subject_uid: str) -> None:
+        if subject_uid.startswith(DEVICE_PREFIX):
+            # A device-wide setting covers its entities, also ones added later. Contracts
+            # (heartbeat, expected runs) stay per entity: they describe one sensor or one
+            # automation, not a whole device.
+            if rule_id in PER_ENTITY_RULES:
+                raise SentinelError(ErrorCode.VALIDATION_FAILED, "rule is set per entity",
+                                    param="subject_uid")
+            if dr.async_get(self.rt.hass).async_get(
+                    subject_uid.removeprefix(DEVICE_PREFIX)) is None:
+                raise SentinelError(ErrorCode.NOT_FOUND, "unknown device")
+            return
         ent = self.rt.inventory.get(subject_uid)
         if ent is None or ent.deleted_at_us is not None:
             raise SentinelError(ErrorCode.NOT_FOUND, "unknown subject")
         if rule_id == "DOC007" and ent.domain != "automation":
             raise SentinelError(ErrorCode.VALIDATION_FAILED, "expected runs need an automation",
                                 param="subject_uid")
+
+    async def set(self, *, rule_id: str, subject_uid: str, enabled: bool,
+                  params: dict[str, Any], actor: str) -> dict[str, Any]:
+        ids = await self.set_many(rule_id=rule_id, subject_uids=[subject_uid],
+                                  enabled=enabled, params=params, actor=actor)
+        return self.override_api(next(o for o in self.overrides if o.id == ids[0]))
+
+    async def set_many(self, *, rule_id: str, subject_uids: list[str], enabled: bool,
+                       params: dict[str, Any], actor: str) -> list[str]:
+        """One validated, audited transaction for one or many subjects (e.g. an incident)."""
+        clean = validate(rule_id, enabled, params)
+        subjects = list(dict.fromkeys(subject_uids))
+        if not 1 <= len(subjects) <= MAX_BULK:
+            raise SentinelError(ErrorCode.VALIDATION_FAILED, "one to 200 subjects",
+                                param="subject_uids")
+        for uid in subjects:
+            self._check_subject(rule_id, uid)
         now = self.rt.clock.now_us()
 
         def upsert(conn):
             with _tx(conn):
                 count = conn.execute("SELECT COUNT(*) FROM rule_overrides").fetchone()[0]
-                row = conn.execute("SELECT id FROM rule_overrides WHERE rule_id=? AND "
-                                   "subject_uid=?", (rule_id, subject_uid)).fetchone()
-                if row is None and count >= MAX_OVERRIDES:
-                    raise SentinelError(ErrorCode.CONFLICT, "too many overrides",
-                                        limit=MAX_OVERRIDES)
                 revision = conn.execute("SELECT COALESCE(MAX(policy_revision), 0) + 1 "
                                         "FROM rule_overrides").fetchone()[0]
-                oid = row["id"] if row is not None else new_uuid()
-                conn.execute(
-                    "INSERT INTO rule_overrides(id, rule_id, subject_uid, enabled, params_json, "
-                    "policy_revision, actor_id, created_us, updated_us) "
-                    "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(rule_id, subject_uid) DO UPDATE "
-                    "SET enabled=excluded.enabled, params_json=excluded.params_json, "
-                    "policy_revision=excluded.policy_revision, actor_id=excluded.actor_id, "
-                    "updated_us=excluded.updated_us",
-                    (oid, rule_id, subject_uid, int(enabled), json.dumps(clean, sort_keys=True),
-                     revision, actor, now, now))
-                insert_audit(conn, actor, oid, "rules.set", subject_uid, "ok", now)
-                return oid
+                ids = []
+                for uid in subjects:
+                    row = conn.execute("SELECT id FROM rule_overrides WHERE rule_id=? AND "
+                                       "subject_uid=?", (rule_id, uid)).fetchone()
+                    if row is None:
+                        count += 1
+                        if count > MAX_OVERRIDES:
+                            raise SentinelError(ErrorCode.CONFLICT, "too many overrides",
+                                                limit=MAX_OVERRIDES)
+                    oid = row["id"] if row is not None else new_uuid()
+                    conn.execute(
+                        "INSERT INTO rule_overrides(id, rule_id, subject_uid, enabled, "
+                        "params_json, policy_revision, actor_id, created_us, updated_us) "
+                        "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(rule_id, subject_uid) DO UPDATE "
+                        "SET enabled=excluded.enabled, params_json=excluded.params_json, "
+                        "policy_revision=excluded.policy_revision, actor_id=excluded.actor_id, "
+                        "updated_us=excluded.updated_us",
+                        (oid, rule_id, uid, int(enabled), json.dumps(clean, sort_keys=True),
+                         revision, actor, now, now))
+                    insert_audit(conn, actor, oid, "rules.set", uid, "ok", now)
+                    ids.append(oid)
+                return ids
 
-        oid = await self.rt.db.run(upsert)
+        ids = await self.rt.db.run(upsert)
         await self._apply()
         await self.rt.config_changed(actor)
-        return self.override_api(next(o for o in self.overrides if o.id == oid))
+        return ids
 
     async def delete(self, override_id: str, actor: str) -> None:
         now = self.rt.clock.now_us()

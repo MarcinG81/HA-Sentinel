@@ -11,6 +11,7 @@ interface Override {
   subject_label: string | null;
   subject_deleted: boolean;
   subject_persistent: boolean;
+  subject_kind?: "entity" | "device";
   enabled: boolean;
   params: Record<string, number>;
 }
@@ -66,11 +67,13 @@ export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
   const search = async () => {
     if (!query.value.trim()) return;
     const res = await ctx.ws<GraphSearch>({ type: "ha_sentinel/graph/search", q: query.value.trim() });
-    const ok = res.items.filter((n) => n.type === "entity");
+    // A device covers all its entities (also later ones); contracts stay per entity.
+    const perEntity = ["DOC005", "DOC007"].includes(rule.value);
+    const ok = res.items.filter((n) => n.type === "entity" || (n.type === "device" && !perEntity));
     hits.replaceChildren(...ok.map((n) => h("li", {}, h("button", {
       class: "item", type: "button",
-      onclick: () => { picked = n; chosen.replaceChildren(h("strong", {}, n.label)); hits.replaceChildren(); },
-    }, h("span", { class: "title" }, n.label)))));
+      onclick: () => { picked = n; chosen.replaceChildren(h("strong", {}, n.label), n.type === "device" ? ` · ${t("node.device")}` : ""); hits.replaceChildren(); },
+    }, h("div", { class: "row spread" }, h("span", { class: "title" }, n.label), n.type === "device" ? h("span", { class: "badge status" }, t("node.device")) : null)))));
     if (!ok.length) hits.replaceChildren(h("li", { class: "muted" }, t("map.no_hits")));
   };
 
@@ -131,7 +134,7 @@ export async function renderRulesCard(ctx: Ctx): Promise<HTMLElement> {
       ? h("p", { class: "muted" }, t("rules.none"))
       : h("ul", { class: "list" }, items.map((o) => h("li", {}, h("div", { class: "item" },
           h("div", { class: "row spread" },
-            h("span", { class: "title" }, o.subject_label ?? t("rules.subject_gone")),
+            h("span", { class: "title" }, o.subject_label ?? t("rules.subject_gone"), o.subject_kind === "device" ? ` · ${t("node.device")}` : ""),
             h("span", { class: `badge ${o.enabled ? "ok" : "status"}` }, `${o.rule_id} · ${t(`rule.${o.rule_id}`)}`)),
           h("div", { class: "sub" }, describe(o) + (o.subject_deleted ? ` · ${t("rules.subject_gone")}` : !o.subject_persistent ? ` · ${t("rules.not_persistent")}` : "")),
           h("button", { class: "secondary small", onclick: async () => { await ctx.ws({ type: "ha_sentinel/rules/delete", override_id: o.id, request_key: uuid4() }); ctx.rerender(); } }, t("rules.remove")))))),

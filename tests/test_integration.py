@@ -39,6 +39,8 @@ WS_MUTATIONS_AND_LOOKUPS = [
     {"type": f"{DOMAIN}/rules/set", "rule_id": "DOC001", "subject_uid": "x", "enabled": False,
      "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/rules/delete", "override_id": ANY_UUID, "request_key": ANY_UUID},
+    {"type": f"{DOMAIN}/rules/set_many", "rule_id": "DOC001", "subject_uids": ["x"],
+     "enabled": False, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/numeric/set", "subject_uid": "x", "purpose": "battery", "scale_min": 0,
      "scale_max": 100, "request_key": ANY_UUID},
     {"type": f"{DOMAIN}/numeric/delete", "source_id": ANY_UUID, "request_key": ANY_UUID},

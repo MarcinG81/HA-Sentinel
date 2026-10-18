@@ -110,6 +110,7 @@ class DoctorEngine:
         domain_of: Callable[[str], str | None] | None = None,
         tz_name: str = "UTC",
         automation_enabled: Callable[[str], bool | None] | None = None,
+        device_of: Callable[[str], str | None] | None = None,
     ) -> None:
         self.params = params or DoctorParams()
         self._grace_end_us = boot_started_us + self.params.startup_grace_s * S
@@ -125,6 +126,8 @@ class DoctorEngine:
         # DOC007: expectation, current window and last observed run per automation.
         self._tz_name = tz_name
         self._automation_enabled = automation_enabled or (lambda _uid: None)
+        # Overrides may target a whole device ("device:<id>"); the entity's own wins.
+        self._device_of = device_of or (lambda _uid: None)
         self._expect: dict[str, Expectation] = {}
         self._windows: dict[str, tuple[int, int, int]] = {}  # uid -> (start, end, token)
         self._last_run: dict[str, int] = {}
@@ -200,9 +203,10 @@ class DoctorEngine:
         self._expect = wanted
         for uid in changed:
             self._schedule_expectation(uid, now_us)
-        for (rule, uid), o in self._overrides.items():
-            if not o.enabled:
-                out += self._resolve(rule, uid, now_us, reason="rule_disabled")
+        # Close what is now switched off, including entities covered by a device override.
+        for f in list(self._findings.values()):
+            if not self._enabled(f.rule_id, f.subject_uid):
+                out += self._resolve(f.rule_id, f.subject_uid, now_us, reason="rule_disabled")
         return out
 
     @property
@@ -226,12 +230,18 @@ class DoctorEngine:
     def heartbeat_subjects(self) -> frozenset[str]:
         return frozenset(self._heartbeats)
 
-    def _param(self, rule: str, uid: str, key: str, default: float) -> float:
+    def _override(self, rule: str, uid: str) -> RuleOverride | None:
         o = self._overrides.get((rule, uid))
+        if o is None and (device := self._device_of(uid)) is not None:
+            o = self._overrides.get((rule, device))
+        return o
+
+    def _param(self, rule: str, uid: str, key: str, default: float) -> float:
+        o = self._override(rule, uid)
         return o.params.get(key, default) if o is not None else default
 
     def _enabled(self, rule: str, uid: str) -> bool:
-        o = self._overrides.get((rule, uid))
+        o = self._override(rule, uid)
         return o is None or o.enabled
 
     def availability_snapshot(self) -> dict[str, Availability]:

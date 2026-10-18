@@ -60,6 +60,7 @@ class Inventory:
         self._by_registry: dict[str, str] = {}
         self._by_alias: dict[str, str] = {}  # active entities only
         self._devices: dict[str, DeviceRecord] = {}  # ha_device_id -> record
+        self._device_by_uid: dict[str, DeviceRecord] = {}
 
     def __len__(self) -> int:
         return sum(1 for e in self._by_uid.values() if e.deleted_at_us is None)
@@ -75,6 +76,7 @@ class Inventory:
         changes: list[InventoryChange] = []
         for dev in devices:
             self._devices[dev.ha_device_id] = dev
+            self._device_by_uid[dev.uid] = dev
         for ent in entities:
             self._by_uid[ent.uid] = ent
             if ent.registry_id is not None:
@@ -90,6 +92,12 @@ class Inventory:
 
     def get(self, uid: str) -> EntityRecord | None:
         return self._by_uid.get(uid)
+
+    def device_key(self, uid: str) -> str | None:
+        """Graph-style key `device:<ha device id>` of the device an entity belongs to."""
+        ent = self._by_uid.get(uid)
+        dev = self._device_by_uid.get(ent.device_uid) if ent and ent.device_uid else None
+        return f"device:{dev.ha_device_id}" if dev else None
 
     def uid_for_registry(self, registry_id: str) -> str | None:
         """Stable lookup that survives a rename not yet seen in a state event."""
@@ -115,6 +123,7 @@ class Inventory:
         if dev is None:
             dev = DeviceRecord(uid=new_uuid(), ha_device_id=ha_device_id)
             self._devices[ha_device_id] = dev
+            self._device_by_uid[dev.uid] = dev
             changes.append(InventoryChange(device=dev))
         return dev.uid
 

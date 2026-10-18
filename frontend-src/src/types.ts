@@ -151,6 +151,7 @@ export interface IncidentDetail extends Incident {
   confirmed_cause: { candidate_uid: string; verdict: "confirmed" | "rejected"; by: string; at: string } | null;
   change_hypotheses?: { candidate_uid: string; label: string; minutes_before: number; runnable: string; relation: string; subject: Subject }[];
   recurrence_of?: string | null;
+  rules?: { rule_id: string; subject_uids: string[]; device: { uid: string; name: string | null } | null; per_entity_only: boolean }[];
 }
 
 export interface IncidentPage {

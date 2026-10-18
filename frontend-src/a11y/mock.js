@@ -23,6 +23,7 @@ export const DATA = {
   "ha_sentinel/capabilities": { capabilities: caps },
   "ha_sentinel/incidents/list": { items, next_cursor: null, revision: 7 },
   "ha_sentinel/incidents/get": { ...infra, hypotheses: hyps, counter_evidence: [], confirmed_cause: null, recurrence_of: "i0",
+    rules: [{ rule_id: "DOC001", subject_uids: ["u1", "u2"], device: { uid: "device:d1", name: "Suszarka" }, per_entity_only: false }],
     change_hypotheses: [{ candidate_uid: "resource:r1", label: "pompa.yaml", minutes_before: 12, runnable: "Pompa nocą", relation: "controls", subject: subject("Pompa", "switch.pump") }],
     findings: [{ id: "f1", rule_id: "DOC001", rule_version: 1, status: "active", severity: "high", confidence: 1, coverage: "complete",
       subject: subject("MQTT 1", "sensor.mqtt_1"), first_seen: "2026-10-17T09:42:03Z", last_seen: "2026-10-17T09:42:03Z", resolved_at: null, details: { value: 12.5, threshold: 20, resolution: "rule_revised", missing: [{ entity_id: "light.gone" }], stale: [{ entity_id: "light.old", current: "light.new" }] },
