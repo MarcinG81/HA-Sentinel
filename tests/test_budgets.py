@@ -35,7 +35,9 @@ async def test_samples_become_aggregates_and_snapshots_are_capped(hass, monkeypa
     runtime = await _setup(hass)
     monkeypatch.setattr(data_services, "BLOB_GRACE_S", -60)  # treat every blob as old
     now = runtime.clock.now_us()
-    old = now - 10 * DAY  # beyond the 7-day observation retention
+    # Beyond the 7-day observation retention, aligned to a minute so all three samples
+    # share one minute bucket whatever the wall clock is.
+    old = (now - 10 * DAY) // 60_000_000 * 60_000_000
 
     def seed(conn):
         for i, value in enumerate((40.0, 30.0, 20.0)):
